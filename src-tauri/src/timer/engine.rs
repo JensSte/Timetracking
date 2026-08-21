@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 
 use crate::db::models::TimeEntry;
+use crate::db::tasks_repo;
 use crate::db::time_entries_repo;
 
 /// A running timer older than this is treated as a likely crash/left-overnight case
@@ -12,6 +13,8 @@ pub const STALE_THRESHOLD_SECS: i64 = 12 * 60 * 60;
 pub enum TimerError {
     #[error("no timer is currently running")]
     NotRunning,
+    #[error("no ticket with id {0}")]
+    UnknownTask(i64),
     #[error(transparent)]
     Db(#[from] rusqlite::Error),
 }
@@ -54,6 +57,25 @@ pub fn set_comment(conn: &Connection, comment: Option<String>) -> Result<TimeEnt
     Ok(time_entries_repo::set_running_comment(conn, running.id, comment.as_deref())?)
 }
 
+/// Repoints the running timer at a different ticket without interrupting it: the
+/// start time, elapsed time and comment are untouched, so the whole session ends up
+/// logged against the new ticket. This is the "I started the wrong ticket" fix — to
+/// bank the time so far on the old ticket and begin fresh on the new one, `start` is
+/// still the right call (it stops-and-saves first).
+///
+/// Along with `set_comment`, this is the extent of what can change on a running entry
+/// (see ADR-0025); the times and the row's existence remain start/stop's alone.
+pub fn set_task(conn: &Connection, task_id: i64) -> Result<TimeEntry, TimerError> {
+    let running = time_entries_repo::get_running(conn)?.ok_or(TimerError::NotRunning)?;
+    if running.task_id == task_id {
+        return Ok(running);
+    }
+    if tasks_repo::get_task_by_id(conn, task_id)?.is_none() {
+        return Err(TimerError::UnknownTask(task_id));
+    }
+    Ok(time_entries_repo::set_running_task(conn, running.id, task_id)?)
+}
+
 pub fn stop(conn: &Connection, now: DateTime<Utc>) -> Result<TimeEntry, TimerError> {
     let running = time_entries_repo::get_running(conn)?.ok_or(TimerError::NotRunning)?;
     let duration = (now - running.started_at).num_seconds().max(0);
@@ -72,7 +94,6 @@ pub fn is_stale(entry: &TimeEntry, now: DateTime<Utc>) -> bool {
 mod tests {
     use super::*;
     use crate::db::connection::open_in_memory;
-    use crate::db::tasks_repo;
     use chrono::TimeZone;
 
     fn now() -> DateTime<Utc> {
@@ -165,6 +186,53 @@ mod tests {
         let conn = open_in_memory().unwrap();
         let result = set_comment(&conn, Some("nothing to attach this to".into()));
         assert!(matches!(result, Err(TimerError::NotRunning)));
+    }
+
+    #[test]
+    fn changing_the_ticket_keeps_the_timer_running_and_its_elapsed_time() {
+        let mut conn = open_in_memory().unwrap();
+        let (task_a, task_b) = setup_two_tasks(&conn);
+        let started = start(&mut conn, task_a, Some("mid-session note".into()), now()).unwrap();
+
+        let repointed = set_task(&conn, task_b).unwrap();
+
+        assert_eq!(repointed.id, started.id, "repointing must reuse the same entry, not start a new one");
+        assert_eq!(repointed.task_id, task_b);
+        assert_eq!(repointed.started_at, started.started_at, "elapsed time must be preserved");
+        assert_eq!(repointed.comment.as_deref(), Some("mid-session note"));
+        assert!(repointed.is_running());
+
+        let stopped = stop(&conn, now() + chrono::Duration::minutes(20)).unwrap();
+        assert_eq!(stopped.task_id, task_b, "the whole session lands on the new ticket");
+        assert_eq!(stopped.duration_seconds, Some(20 * 60));
+    }
+
+    #[test]
+    fn changing_the_ticket_does_not_bank_time_on_the_old_one() {
+        let mut conn = open_in_memory().unwrap();
+        let (task_a, task_b) = setup_two_tasks(&conn);
+        start(&mut conn, task_a, None, now()).unwrap();
+
+        set_task(&conn, task_b).unwrap();
+
+        let entries = time_entries_repo::list_entries(&conn, Some(task_a), None, None).unwrap();
+        assert!(entries.is_empty(), "no completed entry must be left behind on the old ticket");
+    }
+
+    #[test]
+    fn changing_to_an_unknown_ticket_is_rejected() {
+        let mut conn = open_in_memory().unwrap();
+        let (task_a, _) = setup_two_tasks(&conn);
+        start(&mut conn, task_a, None, now()).unwrap();
+
+        assert!(matches!(set_task(&conn, 9999), Err(TimerError::UnknownTask(9999))));
+        assert_eq!(get_running(&conn).unwrap().unwrap().task_id, task_a, "the timer must be untouched");
+    }
+
+    #[test]
+    fn changing_the_ticket_with_no_running_timer_errors() {
+        let conn = open_in_memory().unwrap();
+        assert!(matches!(set_task(&conn, 1), Err(TimerError::NotRunning)));
     }
 
     #[test]

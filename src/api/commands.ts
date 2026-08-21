@@ -50,6 +50,10 @@ export const startTimer = (taskId: number, comment?: string) =>
 export const setActiveTimerComment = (comment: string) =>
   invoke<TimeEntry>("set_active_timer_comment", { comment: comment.trim() || null });
 
+/** Repoints the running timer at another ticket, keeping it running and its elapsed time. */
+export const setActiveTimerTask = (taskId: number) =>
+  invoke<TimeEntry>("set_active_timer_task", { taskId });
+
 export const stopTimer = () => invoke<TimeEntry>("stop_timer");
 
 export const createManualEntry = (params: {

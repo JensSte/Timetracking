@@ -50,6 +50,15 @@ pub fn set_active_timer_comment(
     Ok(engine::set_comment(&conn, comment)?)
 }
 
+/// Changes the ticket the running timer is tracking, keeping it running and keeping
+/// the time counted so far (see ADR-0025). Starting a timer on another ticket is
+/// still the way to bank the elapsed time on the old one and begin fresh.
+#[tauri::command]
+pub fn set_active_timer_task(state: State<'_, AppState>, task_id: i64) -> AppResult<TimeEntry> {
+    let conn = state.db.lock().unwrap();
+    Ok(engine::set_task(&conn, task_id)?)
+}
+
 #[tauri::command]
 pub fn stop_timer(state: State<'_, AppState>) -> AppResult<TimeEntry> {
     let conn = state.db.lock().unwrap();

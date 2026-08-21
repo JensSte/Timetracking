@@ -233,12 +233,21 @@ label {
 
 .timer-display {
   display: flex;
-  align-items: baseline;
+  /* Center, not baseline — the ticket is a select while a timer runs, and a control's
+     baseline doesn't line up with the clock's the way a text span's did. */
+  align-items: center;
   gap: 0.75em;
 }
 
 .timer-task {
   font-weight: 600;
+}
+
+/* Sized to its content so the elapsed clock stays next to the ticket instead of
+   being pushed across the row, but capped so a long summary can't crowd out Stop. */
+.timer-task-select {
+  font-weight: 600;
+  max-width: 22em;
 }
 
 .timer-elapsed {

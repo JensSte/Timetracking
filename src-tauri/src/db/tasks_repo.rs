@@ -15,6 +15,11 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
     })
 }
 
+pub fn get_task_by_id(conn: &Connection, id: i64) -> rusqlite::Result<Option<Task>> {
+    conn.query_row("SELECT * FROM tasks WHERE id = ?1", params![id], row_to_task)
+        .optional()
+}
+
 pub fn get_task_by_key(conn: &Connection, jira_key: &str) -> rusqlite::Result<Option<Task>> {
     conn.query_row(
         "SELECT * FROM tasks WHERE jira_key = ?1",

@@ -30,6 +30,7 @@ interface AppStore {
   loadUnsyncedCount: () => Promise<void>;
   startTimer: (taskId: number, comment?: string) => Promise<void>;
   setActiveTimerComment: (comment: string) => Promise<void>;
+  setActiveTimerTask: (taskId: number) => Promise<void>;
   stopTimer: () => Promise<void>;
   runSync: () => Promise<SyncReport>;
   loadActiveWorkday: () => Promise<void>;
@@ -100,6 +101,16 @@ export const useStore = create<AppStore>((set, get) => ({
   setActiveTimerComment: async (comment) => {
     try {
       await api.setActiveTimerComment(comment);
+    } finally {
+      await get().loadActiveTimer();
+    }
+  },
+
+  // Repointing keeps the same entry running, so only the timer itself needs a
+  // refetch — no entry was completed, so the unsynced count can't have changed.
+  setActiveTimerTask: async (taskId) => {
+    try {
+      await api.setActiveTimerTask(taskId);
     } finally {
       await get().loadActiveTimer();
     }

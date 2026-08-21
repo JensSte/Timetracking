@@ -28,6 +28,7 @@ export function MainView({ onReconfigure }: { onReconfigure: () => void }) {
     loadUnsyncedCount,
     startTimer,
     setActiveTimerComment,
+    setActiveTimerTask,
     stopTimer,
     runSync,
     loadActiveWorkday,
@@ -67,6 +68,13 @@ export function MainView({ onReconfigure }: { onReconfigure: () => void }) {
 
   async function handleStopTimer() {
     await stopTimer();
+    setHistoryRefreshSignal((n) => n + 1);
+  }
+
+  // The running entry shows up in History too, so its row has to be re-read once the
+  // ticket behind it changes.
+  async function handleChangeTimerTask(taskId: number) {
+    await setActiveTimerTask(taskId);
     setHistoryRefreshSignal((n) => n + 1);
   }
 
@@ -129,6 +137,7 @@ export function MainView({ onReconfigure }: { onReconfigure: () => void }) {
             onStart={handleStartTimer}
             onStop={handleStopTimer}
             onSetComment={setActiveTimerComment}
+            onChangeTask={handleChangeTimerTask}
           />
           <div className="panels-row">
             <MyTasksPanel

@@ -74,6 +74,18 @@ pub fn set_running_comment(
     Ok(get_by_id(conn, id)?.expect("row was just updated"))
 }
 
+/// Repoints the currently running entry at a different ticket, keeping `started_at`
+/// (and therefore the elapsed time) as it is. Scoped by `ended_at IS NULL` for the
+/// same reason as `set_running_comment` — a completed entry's ticket changes through
+/// `update_entry`, which handles `edited_at` and re-sync.
+pub fn set_running_task(conn: &Connection, id: i64, task_id: i64) -> rusqlite::Result<TimeEntry> {
+    conn.execute(
+        "UPDATE time_entries SET task_id = ?1 WHERE id = ?2 AND ended_at IS NULL",
+        params![task_id, id],
+    )?;
+    Ok(get_by_id(conn, id)?.expect("row was just updated"))
+}
+
 pub fn stop_running(
     conn: &Connection,
     id: i64,

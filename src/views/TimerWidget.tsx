@@ -9,9 +9,18 @@ interface TimerWidgetProps {
   onStop: () => Promise<void>;
   /** Persists the running timer's comment; blank text clears it. */
   onSetComment: (comment: string) => Promise<void>;
+  /** Repoints the running timer at another ticket, keeping its elapsed time. */
+  onChangeTask: (taskId: number) => Promise<void>;
 }
 
-export function TimerWidget({ activeTimer, tasks, onStart, onStop, onSetComment }: TimerWidgetProps) {
+export function TimerWidget({
+  activeTimer,
+  tasks,
+  onStart,
+  onStop,
+  onSetComment,
+  onChangeTask,
+}: TimerWidgetProps) {
   const [now, setNow] = useState(() => Date.now());
   const [selectedTaskId, setSelectedTaskId] = useState<number | "">("");
   const [comment, setComment] = useState("");
@@ -63,6 +72,19 @@ export function TimerWidget({ activeTimer, tasks, onStart, onStop, onSetComment 
     }
   }
 
+  async function handleChangeTask(taskId: number) {
+    if (!activeTimer || taskId === activeTimer.taskId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onChangeTask(taskId);
+    } catch (err) {
+      setError(err as string);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleStop() {
     setBusy(true);
     setError(null);
@@ -93,7 +115,27 @@ export function TimerWidget({ activeTimer, tasks, onStart, onStop, onSetComment 
         )}
         <div className="timer-running-row">
           <div className="timer-display">
-            <span className="timer-task">{activeTimer.taskKey}</span>
+            <select
+              className="timer-task-select"
+              title="Change the ticket this session is tracked against — the elapsed time moves with it"
+              value={activeTimer.taskId}
+              disabled={busy}
+              onChange={(e) => handleChangeTask(Number(e.target.value))}
+            >
+              {/* The running ticket may no longer be in the picker's list (unassigned,
+                  un-favorited, or off the current sprint since the timer started), so
+                  carry it as its own option rather than rendering an empty select. */}
+              {!tasks.some((t) => t.id === activeTimer.taskId) && (
+                <option value={activeTimer.taskId}>
+                  {activeTimer.taskKey} — {activeTimer.taskSummary}
+                </option>
+              )}
+              {tasks.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.jiraKey} — {t.summary}
+                </option>
+              ))}
+            </select>
             <span className="timer-elapsed">{formatElapsed(elapsedSeconds)}</span>
           </div>
           <button onClick={handleStop} disabled={busy}>
