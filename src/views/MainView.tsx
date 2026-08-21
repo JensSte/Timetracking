@@ -26,7 +26,6 @@ export function MainView({ onReconfigure }: { onReconfigure: () => void }) {
     dailySummary,
     weekSummary,
     monthSummary,
-    loadPreferences,
     savePreferences,
     loadTasks,
     refreshMyTasks,
@@ -51,7 +50,6 @@ export function MainView({ onReconfigure }: { onReconfigure: () => void }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
-    loadPreferences();
     loadTasks();
     loadActiveTimer();
     loadUnsyncedCount();
