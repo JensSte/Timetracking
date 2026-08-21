@@ -19,6 +19,7 @@ export function MainView({ onReconfigure }: { onReconfigure: () => void }) {
     activeTimer,
     unsyncedCount,
     activeWorkday,
+    todayBreaks,
     dailySummary,
     weekSummary,
     monthSummary,
@@ -122,6 +123,7 @@ export function MainView({ onReconfigure }: { onReconfigure: () => void }) {
         <>
           <WorkdayWidget
             activeWorkday={activeWorkday}
+            todayBreaks={todayBreaks}
             dailySummary={dailySummary}
             weekSummary={weekSummary}
             monthSummary={monthSummary}

@@ -195,6 +195,19 @@ pub fn today_workdays(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<WorkD
     Ok(work_days_repo::work_days_for_date(conn, &date_str)?)
 }
 
+/// Every break taken today, across all of the day's sessions, oldest first. Read
+/// separately from `get_active_workday` so the breaks stay on screen after the
+/// workday has been clocked out — at which point there is no active workday to hang
+/// them off, but they are still part of what happened today.
+pub fn today_breaks(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<WorkBreak>, WorkdayError> {
+    let mut breaks = Vec::new();
+    for day in today_workdays(conn, now)? {
+        breaks.extend(work_days_repo::breaks_for_day(conn, day.id)?);
+    }
+    breaks.sort_by_key(|b| b.started_at);
+    Ok(breaks)
+}
+
 /// Corrects a workday session's start (and its end, once it has one). Worked time is
 /// derived from these — span minus breaks — so this is the way to fix a late clock-in
 /// or a forgotten clock-out, rather than editing the resulting total.
@@ -334,6 +347,42 @@ mod tests {
             .iter()
             .map(|d| worked_seconds(d, &work_days_repo::breaks_for_day(conn, d.id).unwrap(), at))
             .sum()
+    }
+
+    #[test]
+    fn todays_breaks_survive_the_workday_being_ended() {
+        let mut conn = open_in_memory().unwrap();
+        let started = now();
+        start_workday(&conn, started).unwrap();
+        start_break(&conn, started + chrono::Duration::minutes(30)).unwrap();
+        end_break(&conn, started + chrono::Duration::hours(1)).unwrap();
+        let at = started + chrono::Duration::hours(2);
+        end_workday(&mut conn, at).unwrap();
+
+        let breaks = today_breaks(&conn, at).unwrap();
+
+        assert_eq!(breaks.len(), 1, "a clocked-out day still has its breaks");
+        assert_eq!(breaks[0].started_at, started + chrono::Duration::minutes(30));
+    }
+
+    #[test]
+    fn todays_breaks_span_every_session_of_the_day() {
+        let mut conn = open_in_memory().unwrap();
+        let started = now();
+        start_workday(&conn, started).unwrap();
+        start_break(&conn, started + chrono::Duration::minutes(15)).unwrap();
+        end_break(&conn, started + chrono::Duration::minutes(30)).unwrap();
+        end_workday(&mut conn, started + chrono::Duration::hours(1)).unwrap();
+
+        let resumed = started + chrono::Duration::hours(2);
+        start_workday(&conn, resumed).unwrap();
+        start_break(&conn, resumed + chrono::Duration::minutes(10)).unwrap();
+
+        let breaks = today_breaks(&conn, resumed + chrono::Duration::minutes(20)).unwrap();
+
+        assert_eq!(breaks.len(), 2, "both sessions' breaks, not just the current one's");
+        assert!(breaks[0].started_at < breaks[1].started_at, "oldest first");
+        assert!(breaks[1].ended_at.is_none(), "a still-open break is included");
     }
 
     #[test]

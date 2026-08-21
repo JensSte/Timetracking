@@ -126,6 +126,18 @@ pub fn list_today_workdays(state: State<'_, AppState>) -> AppResult<Vec<WorkDay>
     list_today_workdays_impl(&state)
 }
 
+/// Today's breaks across every session, so the widget can keep showing them after the
+/// workday has been ended.
+fn list_today_breaks_impl(state: &AppState) -> AppResult<Vec<WorkBreak>> {
+    let conn = state.db.lock().unwrap();
+    Ok(engine::today_breaks(&conn, Utc::now())?)
+}
+
+#[tauri::command]
+pub fn list_today_breaks(state: State<'_, AppState>) -> AppResult<Vec<WorkBreak>> {
+    list_today_breaks_impl(&state)
+}
+
 /// Corrects a workday session's start, and its end once it has one (see
 /// `workday::engine::update_workday`). `ended_at` must stay absent while the session
 /// is running — ending it is `end_workday`'s job.

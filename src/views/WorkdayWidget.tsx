@@ -7,6 +7,8 @@ import { EditWorkdayForm } from "./EditWorkdayForm";
 
 interface WorkdayWidgetProps {
   activeWorkday: WorkdayStatus | null;
+  /** Every break taken today, whether or not a workday is still running. */
+  todayBreaks: WorkBreak[];
   dailySummary: DailySummary | null;
   weekSummary: RangeSummary | null;
   monthSummary: RangeSummary | null;
@@ -33,10 +35,6 @@ function currentSessionWorkedSeconds(workday: WorkdayStatus, nowMs: number): num
   return Math.max(0, span - breaks);
 }
 
-function currentSessionBreakSeconds(workday: WorkdayStatus, nowMs: number): number {
-  return workday.breaks.reduce((total, brk) => total + breakSeconds(brk, nowMs), 0);
-}
-
 function formatDiff(diffSeconds: number): string {
   const sign = diffSeconds > 0 ? "+" : diffSeconds < 0 ? "−" : "";
   return `${sign}${formatDuration(Math.abs(diffSeconds))}`;
@@ -44,6 +42,7 @@ function formatDiff(diffSeconds: number): string {
 
 export function WorkdayWidget({
   activeWorkday,
+  todayBreaks,
   dailySummary,
   weekSummary,
   monthSummary,
@@ -95,9 +94,9 @@ export function WorkdayWidget({
   const workedToday = activeWorkday
     ? activeWorkday.priorWorkedSecondsToday + currentSessionWorkedSeconds(activeWorkday, now)
     : (dailySummary?.workedSeconds ?? 0);
-  const breaksToday = activeWorkday
-    ? activeWorkday.priorBreakSecondsToday + currentSessionBreakSeconds(activeWorkday, now)
-    : 0;
+  // Summed from the day's own breaks rather than the active workday, so the line
+  // stays put after clocking out — an open break still counts up to `now`.
+  const breaksToday = todayBreaks.reduce((total, brk) => total + breakSeconds(brk, now), 0);
   const loggedToday = dailySummary?.loggedSeconds ?? 0;
 
   // The week and month rows report *logged* time — what actually reached Jira over
@@ -138,28 +137,23 @@ export function WorkdayWidget({
           </button>
         )}
       </div>
-      {breaksToday > 0 && (
+      {todayBreaks.length > 0 && (
         <p className="workday-breaks">
           Breaks:{" "}
-          {activeWorkday && activeWorkday.breaks.length > 0 ? (
-            <>
-              {activeWorkday.breaks.map((b, i) => (
-                <span key={b.id}>
-                  {i > 0 && ", "}
-                  {b.endedAt ? (
-                    <button type="button" className="link-button" onClick={() => setEditingBreak(b)}>
-                      {formatDuration(Math.round(breakSeconds(b, now)))}
-                    </button>
-                  ) : (
-                    formatDuration(Math.round(breakSeconds(b, now)))
-                  )}
-                </span>
-              ))}{" "}
-              ({formatDuration(breaksToday)} total today)
-            </>
-          ) : (
-            `${formatDuration(breaksToday)} today`
-          )}
+          {todayBreaks.map((b, i) => (
+            <span key={b.id}>
+              {i > 0 && ", "}
+              {/* A finished break is editable; the one still running isn't (ADR-0020). */}
+              {b.endedAt ? (
+                <button type="button" className="link-button" onClick={() => setEditingBreak(b)}>
+                  {formatDuration(Math.round(breakSeconds(b, now)))}
+                </button>
+              ) : (
+                formatDuration(Math.round(breakSeconds(b, now)))
+              )}
+            </span>
+          ))}{" "}
+          ({formatDuration(Math.round(breaksToday))} total today)
         </p>
       )}
       {editingWorkday && (
