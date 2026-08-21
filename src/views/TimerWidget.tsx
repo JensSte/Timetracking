@@ -169,6 +169,7 @@ export function TimerWidget({
         ))}
       </select>
       <input
+        className="timer-start-comment"
         type="text"
         placeholder="Comment (optional)"
         value={comment}
