@@ -249,9 +249,10 @@ label {
 }
 
 /* Sized to its content so the elapsed clock stays next to the ticket instead of
-   being pushed across the row, but capped so a long summary can't crowd out Stop. */
+   being pushed across the row, but capped so a long summary can't crowd out Stop.
+   Deliberately not bolded: it's the same plain control as the ticket picker in the
+   manual-entry/edit form, and a bold <select> bolds its option list too. */
 .timer-task-select {
-  font-weight: 600;
   max-width: 22em;
   /* Same reason as the picker in the start row: without this the select's widest
      option sets a floor the row can't shrink past, and Stop gets pushed out of the
