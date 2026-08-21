@@ -209,20 +209,32 @@ label {
   background: var(--panel-bg);
 }
 
+/* Ticket + Start on one line, the comment field full width below — the same shape
+   the widget takes once a timer is running, so starting one doesn't reshuffle the
+   card. It also gives the ticket picker the whole width instead of a third of it. */
+.timer-idle {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.6em;
+}
+
+.timer-idle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+}
+
 /* A flex item's default `min-width: auto` never shrinks below its intrinsic minimum,
    and a <select>'s intrinsic minimum is its widest option — with long ticket
-   summaries in the list, the row refused to shrink and pushed the comment field and
-   Start button out through the right edge of the card. `min-width: 0` lets both
-   controls give way instead; the select keeps twice the share of the leftover room,
-   and the comment field keeps a usable floor. */
-.timer-widget select {
-  flex: 2 1 0;
+   summaries in the list, the row refused to shrink and pushed Start out through the
+   right edge of the card. `min-width: 0` lets the picker give way instead. */
+.timer-idle-row select {
+  flex: 1;
   min-width: 0;
 }
 
 .timer-start-comment {
-  flex: 1 1 0;
-  min-width: 8em;
+  width: 100%;
 }
 
 .timer-running {

@@ -71,16 +71,21 @@ export function TimerWidget({ activeTimer, tasks, onStart, onStop }: TimerWidget
   }
 
   return (
-    <section className="timer-widget">
+    <section className="timer-widget timer-idle">
       {error && <p className="error">{error}</p>}
-      <select value={selectedTaskId} onChange={(e) => setSelectedTaskId(Number(e.target.value) || "")}>
-        <option value="">Select a ticket…</option>
-        {tasks.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.jiraKey} — {t.summary}
-          </option>
-        ))}
-      </select>
+      <div className="timer-idle-row">
+        <select value={selectedTaskId} onChange={(e) => setSelectedTaskId(Number(e.target.value) || "")}>
+          <option value="">Select a ticket…</option>
+          {tasks.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.jiraKey} — {t.summary}
+            </option>
+          ))}
+        </select>
+        <button onClick={handleStart} disabled={busy || selectedTaskId === ""}>
+          Start
+        </button>
+      </div>
       <input
         className="timer-start-comment"
         type="text"
@@ -88,9 +93,6 @@ export function TimerWidget({ activeTimer, tasks, onStart, onStop }: TimerWidget
         value={comment}
         onChange={(e) => setComment(e.target.value)}
       />
-      <button onClick={handleStart} disabled={busy || selectedTaskId === ""}>
-        Start
-      </button>
     </section>
   );
 }
