@@ -35,7 +35,9 @@ export function MyTasksPanel({ tasks, jiraBaseUrl, onRefresh, onStartTimer }: My
     <section className="panel">
       <div className="panel-header">
         {/* The count follows the filter — it counts what's actually listed below. */}
-        <h2>My Tasks ({visibleTasks.length})</h2>
+        <h2>
+          My Tasks <span className="panel-count">({visibleTasks.length})</span>
+        </h2>
         <div className="panel-header-actions">
           <label className="sprint-toggle">
             <input
