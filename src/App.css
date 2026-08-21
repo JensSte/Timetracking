@@ -306,8 +306,10 @@ label {
   gap: 0.75em;
 }
 
-/* Lets the ticket select shrink rather than shoving Stop off the edge. */
+/* Takes the row's leftover width (so the ticket picker has somewhere to grow into)
+   while still being allowed to shrink rather than shoving Stop off the edge. */
 .timer-running-row .timer-display {
+  flex: 1;
   min-width: 0;
 }
 
@@ -327,15 +329,25 @@ label {
   font-weight: 600;
 }
 
-/* Sized to its content so the elapsed clock stays next to the ticket instead of
-   being pushed across the row, but capped so a long summary can't crowd out Stop. */
-.timer-task-select {
-  font-weight: 600;
+/* Capped so a long summary can't crowd Stop off the row, and left at the app's plain
+   control weight — the running ticket is something you change, not a heading. */
+.timer-task-picker {
+  /* A text input carries its own default width (~20 characters), so without a basis
+     the picker would shrink to that and truncate the ticket it is showing. Grow into
+     the row instead, up to a cap that keeps a long summary from crowding Stop. */
+  flex: 1 1 22em;
   max-width: 22em;
-  /* Same reason as the picker in the start row: without this the select's widest
-     option sets a floor the row can't shrink past, and Stop gets pushed out of the
-     card. See the sibling rule on `.timer-widget select`. */
   min-width: 0;
+}
+
+/* Float the result list here rather than pushing the clock, Stop and the comment
+   field down every time it opens. Safe in this spot, unlike inside the modal: the
+   timer card is not a scroll container, so nothing clips it. */
+.timer-running-row .task-picker-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 5;
 }
 
 .timer-elapsed {
