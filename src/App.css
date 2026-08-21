@@ -528,6 +528,12 @@ label {
   border-bottom: 1px solid var(--border);
 }
 
+/* The count row closes the table off, so it carries no bottom rule of its own. */
+.history-table tfoot td,
+.history-table tfoot th {
+  border-bottom: none;
+}
+
 .comment-cell {
   color: var(--muted);
   /* Widest column in the table — comments are usually a short sentence, and the
