@@ -113,6 +113,10 @@ export const updateBreak = (params: { id: number; startedAt: string; endedAt: st
     endedAt: params.endedAt,
   });
 
+/** Sets today's total worked time; the current session's start moves to match. */
+export const setWorkedSeconds = (seconds: number) =>
+  invoke<WorkDay>("set_worked_seconds", { seconds });
+
 export const getDailySummary = (date?: string) =>
   invoke<DailySummary>("get_daily_summary", { date: date ?? null });
 

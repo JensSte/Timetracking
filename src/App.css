@@ -299,6 +299,19 @@ label {
   margin: 0;
 }
 
+/* The Edit affordance on the Today row: same link-button as History's, nudged off
+   the figures so it doesn't read as part of the sentence. */
+.workday-summary .link-button {
+  margin-left: 0.4em;
+  font-size: inherit;
+}
+
+.field-hint {
+  margin: 0 0 0.5em;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
 /* Panels */
 .panels-row {
   display: grid;

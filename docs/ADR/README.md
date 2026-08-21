@@ -33,3 +33,5 @@ it instead, so the history of *why* stays intact.
 | [0021](0021-statistics-view-ticket-and-interval-breakdown.md) | Statistics view — per-ticket totals and an interval breakdown chart | Accepted |
 | [0022](0022-statistics-chart-legend-toggling-and-empty-period-filter.md) | Full, toggleable statistics-chart legend; hide empty periods by default | Accepted |
 | [0026](0026-workday-summaries-stacked-per-period.md) | Workday summaries stack one period per line | Accepted |
+| [0028](0028-week-and-month-rows-report-logged-time.md) | The week and month rows report logged time, not worked time | Accepted |
+| [0029](0029-editable-worked-time-by-shifting-the-start.md) | Today's worked time is edited by typing the total; the start moves to match | Accepted |

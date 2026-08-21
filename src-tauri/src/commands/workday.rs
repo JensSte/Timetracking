@@ -115,6 +115,18 @@ pub fn update_break(
     update_break_impl(&state, id, started_at, ended_at)
 }
 
+/// Sets today's total worked time by moving the current session's start (see
+/// `workday::engine::set_worked_seconds`).
+fn set_worked_seconds_impl(state: &AppState, seconds: i64) -> AppResult<WorkDay> {
+    let conn = state.db.lock().unwrap();
+    Ok(engine::set_worked_seconds(&conn, seconds, Utc::now())?)
+}
+
+#[tauri::command]
+pub fn set_worked_seconds(state: State<'_, AppState>, seconds: i64) -> AppResult<WorkDay> {
+    set_worked_seconds_impl(&state, seconds)
+}
+
 /// `date` (`YYYY-MM-DD`) defaults to today in the local timezone when omitted — see
 /// `workday::engine::local_date`.
 fn get_daily_summary_impl(state: &AppState, date: Option<String>) -> AppResult<DailySummary> {
@@ -269,6 +281,31 @@ mod tests {
         assert_eq!(summary.from, engine::week_start(today).format("%Y-%m-%d").to_string());
         assert_eq!(summary.to, today.format("%Y-%m-%d").to_string());
         assert_eq!(summary.worked_seconds, 0);
+    }
+
+    #[test]
+    fn set_worked_seconds_adjusts_todays_total_through_the_command() {
+        let state = setup();
+        {
+            let conn = state.db.lock().unwrap();
+            engine::start_workday(&conn, Utc::now() - chrono::Duration::hours(2)).unwrap();
+        }
+
+        set_worked_seconds_impl(&state, 4 * 3600).unwrap();
+
+        let summary = get_daily_summary_impl(&state, None).unwrap();
+        // Wall-clock moves between the edit and the read, so allow a couple of seconds.
+        assert!(
+            (summary.worked_seconds - 4 * 3600).abs() <= 2,
+            "expected ~4h worked, got {}",
+            summary.worked_seconds
+        );
+    }
+
+    #[test]
+    fn set_worked_seconds_with_no_workday_today_is_rejected() {
+        let state = setup();
+        assert!(set_worked_seconds_impl(&state, 3600).is_err());
     }
 
     #[test]

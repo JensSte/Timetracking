@@ -53,6 +53,21 @@ pub fn stop_running(conn: &Connection, id: i64, ended_at: DateTime<Utc>) -> rusq
 
 /// All workday rows for a given local calendar date (`YYYY-MM-DD`), oldest first —
 /// there can be more than one for split shifts.
+/// Moves a workday's start. Only ever called with a value the engine has already
+/// checked against the day's end, its breaks and the local midnight boundary — see
+/// `workday::engine::set_worked_seconds`.
+pub fn update_started_at(
+    conn: &Connection,
+    id: i64,
+    started_at: DateTime<Utc>,
+) -> rusqlite::Result<WorkDay> {
+    conn.execute(
+        "UPDATE work_days SET started_at = ?1 WHERE id = ?2",
+        params![started_at, id],
+    )?;
+    Ok(get_by_id(conn, id)?.expect("row was just updated"))
+}
+
 pub fn work_days_for_date(conn: &Connection, date: &str) -> rusqlite::Result<Vec<WorkDay>> {
     let mut stmt = conn.prepare("SELECT * FROM work_days WHERE work_date = ?1 ORDER BY started_at ASC")?;
     let rows = stmt.query_map(params![date], row_to_work_day)?;
