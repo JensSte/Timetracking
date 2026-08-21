@@ -227,6 +227,11 @@ label {
   gap: 0.75em;
 }
 
+/* Lets the ticket select shrink rather than shoving Stop off the edge. */
+.timer-running-row .timer-display {
+  min-width: 0;
+}
+
 .timer-running-comment {
   width: 100%;
 }
@@ -248,6 +253,10 @@ label {
 .timer-task-select {
   font-weight: 600;
   max-width: 22em;
+  /* Same reason as the picker in the start row: without this the select's widest
+     option sets a floor the row can't shrink past, and Stop gets pushed out of the
+     card. See the sibling rule on `.timer-widget select`. */
+  min-width: 0;
 }
 
 .timer-elapsed {
