@@ -121,6 +121,9 @@ export const updateBreak = (params: { id: number; startedAt: string; endedAt: st
     endedAt: params.endedAt,
   });
 
+/** Every break taken today, across all sessions — survives the workday being ended. */
+export const listTodayBreaks = () => invoke<WorkBreak[]>("list_today_breaks");
+
 /** Today's workday sessions, oldest first. */
 export const listTodayWorkdays = () => invoke<WorkDay[]>("list_today_workdays");
 

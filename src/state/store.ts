@@ -7,6 +7,7 @@ import type {
   SettingsDto,
   SyncReport,
   Task,
+  WorkBreak,
   WorkdayStatus,
 } from "../api/types";
 
@@ -18,6 +19,8 @@ interface AppStore {
   unsyncedCount: number;
   lastSyncReport: SyncReport | null;
   activeWorkday: WorkdayStatus | null;
+  /** Today's breaks, read separately so they outlive the active workday. */
+  todayBreaks: WorkBreak[];
   dailySummary: DailySummary | null;
   weekSummary: RangeSummary | null;
   monthSummary: RangeSummary | null;
@@ -52,6 +55,7 @@ export const useStore = create<AppStore>((set, get) => ({
   unsyncedCount: 0,
   lastSyncReport: null,
   activeWorkday: null,
+  todayBreaks: [],
   dailySummary: null,
   weekSummary: null,
   monthSummary: null,
@@ -131,9 +135,14 @@ export const useStore = create<AppStore>((set, get) => ({
     return report;
   },
 
+  // Breaks come along with the workday read: every path that changes one (start/end
+  // workday, start/end break, an edit) already refreshes this, so they can't drift.
   loadActiveWorkday: async () => {
-    const activeWorkday = await api.getActiveWorkday();
-    set({ activeWorkday });
+    const [activeWorkday, todayBreaks] = await Promise.all([
+      api.getActiveWorkday(),
+      api.listTodayBreaks(),
+    ]);
+    set({ activeWorkday, todayBreaks });
   },
 
   loadDailySummary: async () => {
