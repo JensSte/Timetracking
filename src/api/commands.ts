@@ -121,9 +121,16 @@ export const updateBreak = (params: { id: number; startedAt: string; endedAt: st
     endedAt: params.endedAt,
   });
 
-/** Sets today's total worked time; the current session's start moves to match. */
-export const setWorkedSeconds = (seconds: number) =>
-  invoke<WorkDay>("set_worked_seconds", { seconds });
+/** Today's workday sessions, oldest first. */
+export const listTodayWorkdays = () => invoke<WorkDay[]>("list_today_workdays");
+
+/** Corrects a workday's start, and its end once it has one (omit while running). */
+export const updateWorkday = (params: { id: number; startedAt: string; endedAt?: string }) =>
+  invoke<WorkDay>("update_workday", {
+    id: params.id,
+    startedAt: params.startedAt,
+    endedAt: params.endedAt ?? null,
+  });
 
 export const getDailySummary = (date?: string) =>
   invoke<DailySummary>("get_daily_summary", { date: date ?? null });

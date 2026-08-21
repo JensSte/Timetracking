@@ -1,6 +1,6 @@
 # 0029: Today's worked time is edited by typing the total; the start moves to match
 
-**Status:** Accepted — 2026-08-21
+**Status:** Superseded by [0030](0030-edit-workday-start-and-end-times.md) — 2026-08-21
 
 ## Context
 

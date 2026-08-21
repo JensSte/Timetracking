@@ -115,16 +115,40 @@ pub fn update_break(
     update_break_impl(&state, id, started_at, ended_at)
 }
 
-/// Sets today's total worked time by moving the current session's start (see
-/// `workday::engine::set_worked_seconds`).
-fn set_worked_seconds_impl(state: &AppState, seconds: i64) -> AppResult<WorkDay> {
+/// Today's workday sessions, oldest first — the widget edits the last of them.
+fn list_today_workdays_impl(state: &AppState) -> AppResult<Vec<WorkDay>> {
     let conn = state.db.lock().unwrap();
-    Ok(engine::set_worked_seconds(&conn, seconds, Utc::now())?)
+    Ok(engine::today_workdays(&conn, Utc::now())?)
 }
 
 #[tauri::command]
-pub fn set_worked_seconds(state: State<'_, AppState>, seconds: i64) -> AppResult<WorkDay> {
-    set_worked_seconds_impl(&state, seconds)
+pub fn list_today_workdays(state: State<'_, AppState>) -> AppResult<Vec<WorkDay>> {
+    list_today_workdays_impl(&state)
+}
+
+/// Corrects a workday session's start, and its end once it has one (see
+/// `workday::engine::update_workday`). `ended_at` must stay absent while the session
+/// is running — ending it is `end_workday`'s job.
+fn update_workday_impl(
+    state: &AppState,
+    id: i64,
+    started_at: String,
+    ended_at: Option<String>,
+) -> AppResult<WorkDay> {
+    let started_at = parse_dt(&started_at)?;
+    let ended_at = ended_at.map(|s| parse_dt(&s)).transpose()?;
+    let conn = state.db.lock().unwrap();
+    Ok(engine::update_workday(&conn, id, started_at, ended_at, Utc::now())?)
+}
+
+#[tauri::command]
+pub fn update_workday(
+    state: State<'_, AppState>,
+    id: i64,
+    started_at: String,
+    ended_at: Option<String>,
+) -> AppResult<WorkDay> {
+    update_workday_impl(&state, id, started_at, ended_at)
 }
 
 /// `date` (`YYYY-MM-DD`) defaults to today in the local timezone when omitted — see
@@ -284,14 +308,16 @@ mod tests {
     }
 
     #[test]
-    fn set_worked_seconds_adjusts_todays_total_through_the_command() {
+    fn update_workday_moves_the_start_and_changes_todays_total() {
         let state = setup();
         {
             let conn = state.db.lock().unwrap();
             engine::start_workday(&conn, Utc::now() - chrono::Duration::hours(2)).unwrap();
         }
+        let day = list_today_workdays_impl(&state).unwrap().pop().unwrap();
 
-        set_worked_seconds_impl(&state, 4 * 3600).unwrap();
+        let earlier = Utc::now() - chrono::Duration::hours(4);
+        update_workday_impl(&state, day.id, earlier.to_rfc3339(), None).unwrap();
 
         let summary = get_daily_summary_impl(&state, None).unwrap();
         // Wall-clock moves between the edit and the read, so allow a couple of seconds.
@@ -303,9 +329,33 @@ mod tests {
     }
 
     #[test]
-    fn set_worked_seconds_with_no_workday_today_is_rejected() {
+    fn update_workday_rejects_an_end_on_a_running_session() {
         let state = setup();
-        assert!(set_worked_seconds_impl(&state, 3600).is_err());
+        {
+            let conn = state.db.lock().unwrap();
+            engine::start_workday(&conn, Utc::now() - chrono::Duration::hours(2)).unwrap();
+        }
+        let day = list_today_workdays_impl(&state).unwrap().pop().unwrap();
+
+        let result = update_workday_impl(
+            &state,
+            day.id,
+            day.started_at.to_rfc3339(),
+            Some(Utc::now().to_rfc3339()),
+        );
+
+        assert!(result.is_err(), "ending a workday must go through end_workday");
+    }
+
+    #[test]
+    fn update_workday_rejects_a_malformed_timestamp() {
+        let state = setup();
+        {
+            let conn = state.db.lock().unwrap();
+            engine::start_workday(&conn, Utc::now()).unwrap();
+        }
+        let day = list_today_workdays_impl(&state).unwrap().pop().unwrap();
+        assert!(update_workday_impl(&state, day.id, "not-a-date".into(), None).is_err());
     }
 
     #[test]

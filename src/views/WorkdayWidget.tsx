@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import type { DailySummary, RangeSummary, WorkBreak, WorkdayStatus } from "../api/types";
+import { listTodayWorkdays } from "../api/commands";
+import type { DailySummary, RangeSummary, WorkBreak, WorkDay, WorkdayStatus } from "../api/types";
 import { formatDuration, formatElapsed } from "../lib/format";
 import { EditBreakForm } from "./EditBreakForm";
-import { EditWorkedTimeForm } from "./EditWorkedTimeForm";
+import { EditWorkdayForm } from "./EditWorkdayForm";
 
 interface WorkdayWidgetProps {
   activeWorkday: WorkdayStatus | null;
@@ -56,13 +57,25 @@ export function WorkdayWidget({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingBreak, setEditingBreak] = useState<WorkBreak | null>(null);
-  const [editingWorkedTime, setEditingWorkedTime] = useState(false);
+  const [editingWorkday, setEditingWorkday] = useState<WorkDay | null>(null);
 
   useEffect(() => {
     if (!activeWorkday) return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [activeWorkday]);
+
+  // The session to correct is the day's last one — the running workday if there is
+  // one, otherwise whatever was clocked out most recently. It's fetched on demand
+  // rather than held in the widget: an ended day isn't part of `activeWorkday`.
+  async function openWorkdayEditor() {
+    await guard(async () => {
+      const days = await listTodayWorkdays();
+      const last = days[days.length - 1];
+      if (!last) throw "No workday today to edit.";
+      setEditingWorkday(last);
+    });
+  }
 
   async function guard(action: () => Promise<void>) {
     setBusy(true);
@@ -149,10 +162,10 @@ export function WorkdayWidget({
           )}
         </p>
       )}
-      {editingWorkedTime && (
-        <EditWorkedTimeForm
-          workedSeconds={Math.round(workedToday)}
-          onClose={() => setEditingWorkedTime(false)}
+      {editingWorkday && (
+        <EditWorkdayForm
+          day={editingWorkday}
+          onClose={() => setEditingWorkday(null)}
           onSaved={onWorkdayEdited}
         />
       )}
@@ -165,13 +178,8 @@ export function WorkdayWidget({
           <dd>
             worked {formatDuration(workedToday)} · logged {formatDuration(loggedToday)} · diff{" "}
             {formatDiff(workedToday - loggedToday)}
-            {activeWorkday && (
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => setEditingWorkedTime(true)}
-                disabled={busy}
-              >
+            {(activeWorkday || workedToday > 0) && (
+              <button type="button" className="link-button" onClick={openWorkdayEditor} disabled={busy}>
                 Edit
               </button>
             )}

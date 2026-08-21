@@ -38,4 +38,5 @@ it instead, so the history of *why* stays intact.
 | [0026](0026-workday-summaries-stacked-per-period.md) | Workday summaries stack one period per line | Accepted |
 | [0027](0027-searchable-ticket-picker.md) | Ticket pickers are searchable, not plain selects | Accepted |
 | [0028](0028-week-and-month-rows-report-logged-time.md) | The week and month rows report logged time, not worked time | Accepted |
-| [0029](0029-editable-worked-time-by-shifting-the-start.md) | Today's worked time is edited by typing the total; the start moves to match | Accepted |
+| [0029](0029-editable-worked-time-by-shifting-the-start.md) | Today's worked time is edited by typing the total; the start moves to match | Superseded by 0030 |
+| [0030](0030-edit-workday-start-and-end-times.md) | Edit a workday's start and end times directly | Accepted |
