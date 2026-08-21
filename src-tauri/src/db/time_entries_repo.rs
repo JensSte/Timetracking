@@ -58,6 +58,22 @@ pub fn insert_running(
     Ok(get_by_id(conn, id)?.expect("row was just inserted"))
 }
 
+/// Sets the comment on the currently running entry (the one with `ended_at IS NULL`).
+/// Scoped by `ended_at IS NULL` rather than by id so this can never touch a completed
+/// record — those go through `update_entry`, which stamps `edited_at` and handles
+/// re-sync; a running entry has nothing in Jira yet, so neither applies.
+pub fn set_running_comment(
+    conn: &Connection,
+    id: i64,
+    comment: Option<&str>,
+) -> rusqlite::Result<TimeEntry> {
+    conn.execute(
+        "UPDATE time_entries SET comment = ?1 WHERE id = ?2 AND ended_at IS NULL",
+        params![comment, id],
+    )?;
+    Ok(get_by_id(conn, id)?.expect("row was just updated"))
+}
+
 pub fn stop_running(
     conn: &Connection,
     id: i64,

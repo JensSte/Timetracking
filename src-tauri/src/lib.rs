@@ -66,6 +66,7 @@ pub fn run() {
             commands::tasks::remove_favorite,
             commands::timer::get_active_timer,
             commands::timer::start_timer,
+            commands::timer::set_active_timer_comment,
             commands::timer::stop_timer,
             commands::entries::create_manual_entry,
             commands::entries::update_time_entry,

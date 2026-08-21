@@ -38,6 +38,18 @@ pub fn start_timer(
     Ok(engine::start(&mut conn, task_id, comment, Utc::now())?)
 }
 
+/// Sets the comment on the running timer without stopping it. The text is stored on
+/// the running row right away, so it is already part of the entry by the time Stop
+/// completes it (and survives an app restart mid-session). Blank input clears it.
+#[tauri::command]
+pub fn set_active_timer_comment(
+    state: State<'_, AppState>,
+    comment: Option<String>,
+) -> AppResult<TimeEntry> {
+    let conn = state.db.lock().unwrap();
+    Ok(engine::set_comment(&conn, comment)?)
+}
+
 #[tauri::command]
 pub fn stop_timer(state: State<'_, AppState>) -> AppResult<TimeEntry> {
     let conn = state.db.lock().unwrap();

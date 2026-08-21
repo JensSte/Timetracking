@@ -27,6 +27,7 @@ export function MainView({ onReconfigure }: { onReconfigure: () => void }) {
     loadActiveTimer,
     loadUnsyncedCount,
     startTimer,
+    setActiveTimerComment,
     stopTimer,
     runSync,
     loadActiveWorkday,
@@ -59,8 +60,8 @@ export function MainView({ onReconfigure }: { onReconfigure: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyRefreshSignal]);
 
-  async function handleStartTimer(taskId: number) {
-    await startTimer(taskId);
+  async function handleStartTimer(taskId: number, comment?: string) {
+    await startTimer(taskId, comment);
     setHistoryRefreshSignal((n) => n + 1);
   }
 
@@ -127,6 +128,7 @@ export function MainView({ onReconfigure }: { onReconfigure: () => void }) {
             tasks={allTasks}
             onStart={handleStartTimer}
             onStop={handleStopTimer}
+            onSetComment={setActiveTimerComment}
           />
           <div className="panels-row">
             <MyTasksPanel

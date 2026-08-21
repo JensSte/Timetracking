@@ -29,6 +29,7 @@ interface AppStore {
   loadActiveTimer: () => Promise<void>;
   loadUnsyncedCount: () => Promise<void>;
   startTimer: (taskId: number, comment?: string) => Promise<void>;
+  setActiveTimerComment: (comment: string) => Promise<void>;
   stopTimer: () => Promise<void>;
   runSync: () => Promise<SyncReport>;
   loadActiveWorkday: () => Promise<void>;
@@ -89,6 +90,16 @@ export const useStore = create<AppStore>((set, get) => ({
     // what lets the UI self-correct instead of getting stuck showing a phantom state.
     try {
       await api.startTimer(taskId, comment);
+    } finally {
+      await get().loadActiveTimer();
+    }
+  },
+
+  // The comment lives on the running row, so it's persisted the moment it's set —
+  // Stop then carries it over without needing to pass it along.
+  setActiveTimerComment: async (comment) => {
+    try {
+      await api.setActiveTimerComment(comment);
     } finally {
       await get().loadActiveTimer();
     }

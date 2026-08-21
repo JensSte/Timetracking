@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ActiveTimer, Task } from "../api/types";
 import { formatElapsed } from "../lib/format";
 
@@ -7,14 +7,30 @@ interface TimerWidgetProps {
   tasks: Task[];
   onStart: (taskId: number, comment?: string) => Promise<void>;
   onStop: () => Promise<void>;
+  /** Persists the running timer's comment; blank text clears it. */
+  onSetComment: (comment: string) => Promise<void>;
 }
 
-export function TimerWidget({ activeTimer, tasks, onStart, onStop }: TimerWidgetProps) {
+export function TimerWidget({ activeTimer, tasks, onStart, onStop, onSetComment }: TimerWidgetProps) {
   const [now, setNow] = useState(() => Date.now());
   const [selectedTaskId, setSelectedTaskId] = useState<number | "">("");
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The draft comment for the *running* timer, kept separate from the start-form's
+  // `comment` so typing here can never leak into the next Start. It's re-seeded from
+  // the backend only when the running entry itself changes (id, or a value pushed by
+  // some other path), never on every render — otherwise an in-flight save's refetch
+  // would clobber whatever the user typed in the meantime.
+  const [runningComment, setRunningComment] = useState("");
+  const savedCommentRef = useRef<{ id: number | null; value: string }>({ id: null, value: "" });
+  const activeId = activeTimer?.id ?? null;
+  const persistedComment = activeTimer?.comment ?? "";
+  if (savedCommentRef.current.id !== activeId || savedCommentRef.current.value !== persistedComment) {
+    savedCommentRef.current = { id: activeId, value: persistedComment };
+    if (runningComment !== persistedComment) setRunningComment(persistedComment);
+  }
 
   useEffect(() => {
     if (!activeTimer) return;
@@ -36,10 +52,26 @@ export function TimerWidget({ activeTimer, tasks, onStart, onStop }: TimerWidget
     }
   }
 
+  /** Writes the draft to the running entry, unless it's already what's stored. */
+  async function saveRunningComment() {
+    if (runningComment.trim() === (activeTimer?.comment ?? "")) return;
+    setError(null);
+    try {
+      await onSetComment(runningComment);
+    } catch (err) {
+      setError(err as string);
+    }
+  }
+
   async function handleStop() {
     setBusy(true);
     setError(null);
     try {
+      // Flush the comment first so text typed but never blurred still lands on the
+      // entry — a failed save must not silently drop it, so don't stop in that case.
+      if (runningComment.trim() !== (activeTimer?.comment ?? "")) {
+        await onSetComment(runningComment);
+      }
       await onStop();
     } catch (err) {
       setError(err as string);
@@ -59,13 +91,26 @@ export function TimerWidget({ activeTimer, tasks, onStart, onStop }: TimerWidget
             stop it?
           </p>
         )}
-        <div className="timer-display">
-          <span className="timer-task">{activeTimer.taskKey}</span>
-          <span className="timer-elapsed">{formatElapsed(elapsedSeconds)}</span>
+        <div className="timer-running-row">
+          <div className="timer-display">
+            <span className="timer-task">{activeTimer.taskKey}</span>
+            <span className="timer-elapsed">{formatElapsed(elapsedSeconds)}</span>
+          </div>
+          <button onClick={handleStop} disabled={busy}>
+            Stop
+          </button>
         </div>
-        <button onClick={handleStop} disabled={busy}>
-          Stop
-        </button>
+        <input
+          className="timer-running-comment"
+          type="text"
+          placeholder="Comment (optional) — saved with this entry"
+          value={runningComment}
+          onChange={(e) => setRunningComment(e.target.value)}
+          onBlur={saveRunningComment}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+        />
       </section>
     );
   }

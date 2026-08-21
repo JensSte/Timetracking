@@ -39,6 +39,21 @@ pub fn start(
     Ok(entry)
 }
 
+/// Sets (or clears) the comment on the running timer while it keeps running — the
+/// comment is simply part of the row, so it is persisted as soon as it's set and is
+/// carried over automatically when `stop` completes the entry. Blank input clears the
+/// comment, matching "no comment" for the eventual Jira worklog.
+///
+/// This is the one field of a running entry that can change outside start/stop (see
+/// ADR-0023); ticket and times still require stopping the timer first.
+pub fn set_comment(conn: &Connection, comment: Option<String>) -> Result<TimeEntry, TimerError> {
+    let running = time_entries_repo::get_running(conn)?.ok_or(TimerError::NotRunning)?;
+    let comment = comment
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty());
+    Ok(time_entries_repo::set_running_comment(conn, running.id, comment.as_deref())?)
+}
+
 pub fn stop(conn: &Connection, now: DateTime<Utc>) -> Result<TimeEntry, TimerError> {
     let running = time_entries_repo::get_running(conn)?.ok_or(TimerError::NotRunning)?;
     let duration = (now - running.started_at).num_seconds().max(0);
@@ -118,6 +133,38 @@ mod tests {
         time_entries_repo::insert_running(&conn, task_a, now(), None).unwrap();
         let result = time_entries_repo::insert_running(&conn, task_b, now(), None);
         assert!(result.is_err(), "unique partial index must reject a second running row");
+    }
+
+    #[test]
+    fn comment_can_be_set_while_running_and_survives_stop() {
+        let mut conn = open_in_memory().unwrap();
+        let (task_a, _) = setup_two_tasks(&conn);
+        start(&mut conn, task_a, None, now()).unwrap();
+
+        let updated = set_comment(&conn, Some("  reviewing the PR  ".into())).unwrap();
+        assert_eq!(updated.comment.as_deref(), Some("reviewing the PR"), "input must be trimmed");
+        assert!(updated.is_running(), "setting a comment must not stop the timer");
+
+        let stopped = stop(&conn, now() + chrono::Duration::minutes(5)).unwrap();
+        assert_eq!(stopped.comment.as_deref(), Some("reviewing the PR"));
+        assert_eq!(stopped.duration_seconds, Some(300));
+    }
+
+    #[test]
+    fn blank_comment_clears_the_running_comment() {
+        let mut conn = open_in_memory().unwrap();
+        let (task_a, _) = setup_two_tasks(&conn);
+        start(&mut conn, task_a, Some("typed at start".into()), now()).unwrap();
+
+        assert!(set_comment(&conn, Some("   ".into())).unwrap().comment.is_none());
+        assert!(set_comment(&conn, None).unwrap().comment.is_none());
+    }
+
+    #[test]
+    fn setting_a_comment_with_no_running_timer_errors() {
+        let conn = open_in_memory().unwrap();
+        let result = set_comment(&conn, Some("nothing to attach this to".into()));
+        assert!(matches!(result, Err(TimerError::NotRunning)));
     }
 
     #[test]

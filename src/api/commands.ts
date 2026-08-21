@@ -46,6 +46,10 @@ export const getActiveTimer = () => invoke<ActiveTimer | null>("get_active_timer
 export const startTimer = (taskId: number, comment?: string) =>
   invoke<TimeEntry>("start_timer", { taskId, comment: comment ?? null });
 
+/** Sets the running timer's comment without stopping it; blank text clears it. */
+export const setActiveTimerComment = (comment: string) =>
+  invoke<TimeEntry>("set_active_timer_comment", { comment: comment.trim() || null });
+
 export const stopTimer = () => invoke<TimeEntry>("stop_timer");
 
 export const createManualEntry = (params: {
