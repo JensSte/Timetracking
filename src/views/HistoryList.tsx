@@ -121,7 +121,13 @@ export function HistoryList({ tasks, jiraBaseUrl, refreshSignal, onEntriesChange
                 </td>
                 <td>{new Date(entry.startedAt).toLocaleString()}</td>
                 <td>{formatDuration(entry.durationSeconds)}</td>
-                <td className="comment-cell">{entry.comment ?? ""}</td>
+                <td className="comment-cell">
+                  {entry.comment && (
+                    <span className="comment-clamp" title={entry.comment}>
+                      {entry.comment}
+                    </span>
+                  )}
+                </td>
                 <td>
                   <span
                     className={
