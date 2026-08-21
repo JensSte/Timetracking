@@ -440,10 +440,25 @@ label {
 
 .comment-cell {
   color: var(--muted);
-  max-width: 200px;
+  /* Widest column in the table — comments are usually a short sentence, and the
+     other columns have fixed-ish content, so give this one the leftover room. */
+  max-width: 28em;
+  min-width: 12em;
+}
+
+/* Wrap to at most two lines, then ellipsize. The clamp lives on an inner element,
+   not the cell, because `display: -webkit-box` on a `td` would drop it out of the
+   table layout. Both targets are WebKit (WKWebView on macOS, WebKitGTK on Linux),
+   so the prefixed property is the one that actually applies. */
+.comment-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Break inside a long unbroken token (a URL, a branch name) rather than letting
+     it force the column wider than its max-width. */
+  overflow-wrap: anywhere;
 }
 
 .badge {
