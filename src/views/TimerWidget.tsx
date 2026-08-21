@@ -116,27 +116,17 @@ export function TimerWidget({
         )}
         <div className="timer-running-row">
           <div className="timer-display">
-            <select
-              className="timer-task-select"
-              title="Change the ticket this session is tracked against — the elapsed time moves with it"
+            {/* `fallbackLabel` covers a running ticket that is no longer in the list
+                (unassigned, un-favorited, or off the current sprint since the timer
+                started) — without it the field would render empty. */}
+            <TaskPicker
+              className="timer-task-picker"
+              tasks={tasks}
               value={activeTimer.taskId}
+              onChange={handleChangeTask}
               disabled={busy}
-              onChange={(e) => handleChangeTask(Number(e.target.value))}
-            >
-              {/* The running ticket may no longer be in the picker's list (unassigned,
-                  un-favorited, or off the current sprint since the timer started), so
-                  carry it as its own option rather than rendering an empty select. */}
-              {!tasks.some((t) => t.id === activeTimer.taskId) && (
-                <option value={activeTimer.taskId}>
-                  {activeTimer.taskKey} — {activeTimer.taskSummary}
-                </option>
-              )}
-              {tasks.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.jiraKey} — {t.summary}
-                </option>
-              ))}
-            </select>
+              fallbackLabel={`${activeTimer.taskKey} — ${activeTimer.taskSummary}`}
+            />
             <span className="timer-elapsed">{formatElapsed(elapsedSeconds)}</span>
           </div>
           <button onClick={handleStop} disabled={busy}>
