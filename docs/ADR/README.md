@@ -35,3 +35,4 @@ it instead, so the history of *why* stays intact.
 | [0023](0023-editable-comment-on-the-running-timer.md) | The comment is editable while the timer runs | Accepted |
 | [0024](0024-history-comment-column-two-line-clamp.md) | The History comment column wraps to two lines instead of one | Accepted |
 | [0025](0025-change-the-ticket-of-a-running-timer.md) | The ticket of a running timer can be changed in place | Accepted |
+| [0026](0026-workday-summaries-stacked-per-period.md) | Workday summaries stack one period per line | Accepted |
