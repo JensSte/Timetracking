@@ -42,3 +42,4 @@ it instead, so the history of *why* stays intact.
 | [0030](0030-edit-workday-start-and-end-times.md) | Edit a workday's start and end times directly | Accepted |
 | [0031](0031-current-sprint-filter-on-by-default.md) | The "current sprint" filter is on by default, and My Tasks shows its count | Accepted |
 | [0032](0032-ui-preferences-in-a-key-value-table.md) | UI preferences live in a key/value table, behind a Settings modal | Accepted |
+| [0033](0033-recency-ordered-ticket-pickers.md) | Ticket pickers rank by what you last tracked, configurable | Accepted |
