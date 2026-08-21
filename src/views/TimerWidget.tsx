@@ -106,7 +106,7 @@ export function TimerWidget({
   if (activeTimer) {
     const elapsedSeconds = Math.max(0, (now - new Date(activeTimer.startedAt).getTime()) / 1000);
     return (
-      <section className="timer-widget timer-running">
+      <section className="timer-widget">
         {error && <p className="error">{error}</p>}
         {activeTimer.isStale && (
           <p className="stale-banner">
@@ -114,56 +114,59 @@ export function TimerWidget({
             stop it?
           </p>
         )}
-        <div className="timer-running-row">
-          <div className="timer-display">
+        <div className="timer-layout">
+          <div className="timer-fields">
             {/* `fallbackLabel` covers a running ticket that is no longer in the list
                 (unassigned, un-favorited, or off the current sprint since the timer
                 started) — without it the field would render empty. */}
             <TaskPicker
-              className="timer-task-picker"
               tasks={tasks}
               value={activeTimer.taskId}
               onChange={handleChangeTask}
               disabled={busy}
               fallbackLabel={`${activeTimer.taskKey} — ${activeTimer.taskSummary}`}
             />
+            <input
+              type="text"
+              placeholder="Comment (optional) — saved with this entry"
+              value={runningComment}
+              onChange={(e) => setRunningComment(e.target.value)}
+              onBlur={saveRunningComment}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+            />
+          </div>
+          <div className="timer-side">
+            <button onClick={handleStop} disabled={busy}>
+              Stop
+            </button>
             <span className="timer-elapsed">{formatElapsed(elapsedSeconds)}</span>
           </div>
-          <button onClick={handleStop} disabled={busy}>
-            Stop
-          </button>
         </div>
-        <input
-          className="timer-running-comment"
-          type="text"
-          placeholder="Comment (optional) — saved with this entry"
-          value={runningComment}
-          onChange={(e) => setRunningComment(e.target.value)}
-          onBlur={saveRunningComment}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-          }}
-        />
       </section>
     );
   }
 
   return (
-    <section className="timer-widget timer-idle">
+    <section className="timer-widget">
       {error && <p className="error">{error}</p>}
-      <div className="timer-idle-row">
-        <TaskPicker tasks={tasks} value={selectedTaskId} onChange={setSelectedTaskId} />
-        <button onClick={handleStart} disabled={busy || selectedTaskId === ""}>
-          Start
-        </button>
+      <div className="timer-layout">
+        <div className="timer-fields">
+          <TaskPicker tasks={tasks} value={selectedTaskId} onChange={setSelectedTaskId} />
+          <input
+            type="text"
+            placeholder="Comment (optional)"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
+        </div>
+        <div className="timer-side">
+          <button onClick={handleStart} disabled={busy || selectedTaskId === ""}>
+            Start
+          </button>
+        </div>
       </div>
-      <input
-        className="timer-start-comment"
-        type="text"
-        placeholder="Comment (optional)"
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-      />
     </section>
   );
 }

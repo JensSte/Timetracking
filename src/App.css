@@ -201,39 +201,61 @@ label {
 /* Timer */
 .timer-widget {
   display: flex;
-  align-items: center;
-  gap: 0.75em;
+  flex-direction: column;
+  gap: 0.6em;
   padding: 1em;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel-bg);
 }
 
-/* Ticket + Start on one line, the comment field full width below — the same shape
-   the widget takes once a timer is running, so starting one doesn't reshuffle the
-   card. It also gives the ticket picker the whole width instead of a third of it. */
-.timer-idle {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.6em;
-}
-
-.timer-idle-row {
+/* Ticket and comment stacked on the left, the button (with the clock beneath it while
+   a timer runs) on the right. The fields take every pixel the button column doesn't
+   need, so both are as wide as the card allows instead of being cut off with a third
+   of the row sitting empty. */
+.timer-layout {
   display: flex;
   align-items: center;
   gap: 0.75em;
 }
 
-/* The picker's text input carries its own default width and, as a flex item, would
-   not shrink below it (`min-width: auto`), pushing Start out through the edge of the
-   card. Scoped to the start row so the running row's own sizing still applies. */
-.timer-idle-row .task-picker {
+.timer-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  /* `min-width: 0` because a text input's own default width would otherwise stop this
+     column shrinking and push the button out of the card. */
   flex: 1;
   min-width: 0;
 }
 
-.timer-start-comment {
+.timer-fields input {
   width: 100%;
+}
+
+/* Float the open result list rather than shoving the comment field down every time
+   it opens. Safe here, unlike inside the modal: the card is not a scroll container,
+   so nothing clips it. */
+.timer-fields .task-picker-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 5;
+}
+
+.timer-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35em;
+  /* Fixed floor so the fields column doesn't visibly resize when the clock gains a
+     digit at the one-hour mark (tabular numerals keep it steady the rest of the time). */
+  min-width: 5.5em;
+}
+
+.timer-elapsed {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.4em;
 }
 
 /* Ticket picker (see TaskPicker.tsx) */
@@ -245,8 +267,9 @@ label {
   width: 100%;
 }
 
-/* In flow, not absolutely positioned: this is used inside `.modal`, which is an
-   `overflow-y: auto` scroll container that would clip a floating list. */
+/* In flow, not absolutely positioned: this is also used inside `.modal`, which is an
+   `overflow-y: auto` scroll container that would clip a floating list. The timer card
+   overrides this — see `.timer-fields .task-picker-list`. */
 .task-picker-list {
   list-style: none;
   margin: 0.25em 0 0;
@@ -290,69 +313,6 @@ label {
 .task-picker-empty {
   padding: 0.35em 0.5em;
   color: var(--muted);
-}
-
-.timer-running {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.6em;
-}
-
-/* Ticket + elapsed on the left, Stop on the right; the comment field sits below. */
-.timer-running-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75em;
-}
-
-/* Takes the row's leftover width (so the ticket picker has somewhere to grow into)
-   while still being allowed to shrink rather than shoving Stop off the edge. */
-.timer-running-row .timer-display {
-  flex: 1;
-  min-width: 0;
-}
-
-.timer-running-comment {
-  width: 100%;
-}
-
-.timer-display {
-  display: flex;
-  /* Center, not baseline — the ticket is a select while a timer runs, and a control's
-     baseline doesn't line up with the clock's the way a text span's did. */
-  align-items: center;
-  gap: 0.75em;
-}
-
-.timer-task {
-  font-weight: 600;
-}
-
-/* Capped so a long summary can't crowd Stop off the row, and left at the app's plain
-   control weight — the running ticket is something you change, not a heading. */
-.timer-task-picker {
-  /* A text input carries its own default width (~20 characters), so without a basis
-     the picker would shrink to that and truncate the ticket it is showing. Grow into
-     the row instead, up to a cap that keeps a long summary from crowding Stop. */
-  flex: 1 1 22em;
-  max-width: 22em;
-  min-width: 0;
-}
-
-/* Float the result list here rather than pushing the clock, Stop and the comment
-   field down every time it opens. Safe in this spot, unlike inside the modal: the
-   timer card is not a scroll container, so nothing clips it. */
-.timer-running-row .task-picker-list {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 5;
-}
-
-.timer-elapsed {
-  font-variant-numeric: tabular-nums;
-  font-size: 1.4em;
 }
 
 .stale-banner {
