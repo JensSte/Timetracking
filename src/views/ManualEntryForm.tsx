@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { createManualEntry, updateTimeEntry } from "../api/commands";
 import type { Task, TimeEntry } from "../api/types";
 import { combine, toDateInput, toTimeInput } from "../lib/format";
+import { TaskPicker } from "./TaskPicker";
 
 interface ManualEntryFormProps {
   tasks: Task[];
@@ -28,7 +29,10 @@ export function ManualEntryForm({ tasks, entry, onClose, onSaved }: ManualEntryF
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (taskId === "") return;
+    if (taskId === "") {
+      setError("Pick a ticket.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -68,14 +72,7 @@ export function ManualEntryForm({ tasks, entry, onClose, onSaved }: ManualEntryF
         <h2>{entry ? "Edit time entry" : "New manual entry"}</h2>
         <label>
           Ticket
-          <select value={taskId} onChange={(e) => setTaskId(Number(e.target.value) || "")} required>
-            <option value="">Select a ticket…</option>
-            {tasks.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.jiraKey} — {t.summary}
-              </option>
-            ))}
-          </select>
+          <TaskPicker tasks={tasks} value={taskId} onChange={setTaskId} />
         </label>
         <label>
           Date

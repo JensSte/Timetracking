@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ActiveTimer, Task } from "../api/types";
 import { formatElapsed } from "../lib/format";
+import { TaskPicker } from "./TaskPicker";
 
 interface TimerWidgetProps {
   activeTimer: ActiveTimer | null;
@@ -160,14 +161,7 @@ export function TimerWidget({
   return (
     <section className="timer-widget">
       {error && <p className="error">{error}</p>}
-      <select value={selectedTaskId} onChange={(e) => setSelectedTaskId(Number(e.target.value) || "")}>
-        <option value="">Select a ticket…</option>
-        {tasks.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.jiraKey} — {t.summary}
-          </option>
-        ))}
-      </select>
+      <TaskPicker tasks={tasks} value={selectedTaskId} onChange={setSelectedTaskId} />
       <input
         type="text"
         placeholder="Comment (optional)"
