@@ -36,3 +36,4 @@ it instead, so the history of *why* stays intact.
 | [0024](0024-history-comment-column-two-line-clamp.md) | The History comment column wraps to two lines instead of one | Accepted |
 | [0025](0025-change-the-ticket-of-a-running-timer.md) | The ticket of a running timer can be changed in place | Accepted |
 | [0026](0026-workday-summaries-stacked-per-period.md) | Workday summaries stack one period per line | Accepted |
+| [0027](0027-searchable-ticket-picker.md) | Ticket pickers are searchable, not plain selects | Accepted |

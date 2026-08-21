@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ActiveTimer, Task } from "../api/types";
 import { formatElapsed } from "../lib/format";
+import { TaskPicker } from "./TaskPicker";
 
 interface TimerWidgetProps {
   activeTimer: ActiveTimer | null;
@@ -161,14 +162,7 @@ export function TimerWidget({
     <section className="timer-widget timer-idle">
       {error && <p className="error">{error}</p>}
       <div className="timer-idle-row">
-        <select value={selectedTaskId} onChange={(e) => setSelectedTaskId(Number(e.target.value) || "")}>
-          <option value="">Select a ticket…</option>
-          {tasks.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.jiraKey} — {t.summary}
-            </option>
-          ))}
-        </select>
+        <TaskPicker tasks={tasks} value={selectedTaskId} onChange={setSelectedTaskId} />
         <button onClick={handleStart} disabled={busy || selectedTaskId === ""}>
           Start
         </button>

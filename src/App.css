@@ -224,17 +224,72 @@ label {
   gap: 0.75em;
 }
 
-/* A flex item's default `min-width: auto` never shrinks below its intrinsic minimum,
-   and a <select>'s intrinsic minimum is its widest option — with long ticket
-   summaries in the list, the row refused to shrink and pushed Start out through the
-   right edge of the card. `min-width: 0` lets the picker give way instead. */
-.timer-idle-row select {
+/* The picker's text input carries its own default width and, as a flex item, would
+   not shrink below it (`min-width: auto`), pushing Start out through the edge of the
+   card. Scoped to the start row so the running row's own sizing still applies. */
+.timer-idle-row .task-picker {
   flex: 1;
   min-width: 0;
 }
 
 .timer-start-comment {
   width: 100%;
+}
+
+/* Ticket picker (see TaskPicker.tsx) */
+.task-picker {
+  position: relative;
+}
+
+.task-picker input {
+  width: 100%;
+}
+
+/* In flow, not absolutely positioned: this is used inside `.modal`, which is an
+   `overflow-y: auto` scroll container that would clip a floating list. */
+.task-picker-list {
+  list-style: none;
+  margin: 0.25em 0 0;
+  padding: 0.2em;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  max-height: 14em;
+  overflow-y: auto;
+}
+
+.task-picker-option {
+  display: flex;
+  gap: 0.6em;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0.35em 0.5em;
+}
+
+.task-picker-option.highlighted,
+.task-picker-option:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.task-picker-key {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.task-picker-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-picker-empty {
+  padding: 0.35em 0.5em;
+  color: var(--muted);
 }
 
 .timer-running {
