@@ -282,6 +282,23 @@ label {
   font-size: 0.9em;
 }
 
+/* One period per line, labels in their own column so the figures line up under each
+   other — a single run-on row pushed the week and month totals far to the right,
+   where they read as an afterthought rather than as three comparable numbers. */
+.workday-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.2em 0.6em;
+}
+
+.workday-summary dt {
+  font-weight: 600;
+}
+
+.workday-summary dd {
+  margin: 0;
+}
+
 /* Panels */
 .panels-row {
   display: grid;

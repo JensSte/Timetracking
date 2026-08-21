@@ -154,12 +154,25 @@ export function WorkdayWidget({
         <EditBreakForm brk={editingBreak} onClose={() => setEditingBreak(null)} onSaved={onBreakUpdated} />
       )}
       {(activeWorkday || dailySummary) && (
-        <p className="workday-summary">
-          Today: worked {formatDuration(workedToday)} · logged {formatDuration(loggedToday)} · diff{" "}
-          {formatDiff(workedToday - loggedToday)}
-          {weekSummary && <> · This week: worked {formatDuration(workedThisWeek)}</>}
-          {monthSummary && <> · This month: worked {formatDuration(workedThisMonth)}</>}
-        </p>
+        <dl className="workday-summary">
+          <dt>Today</dt>
+          <dd>
+            worked {formatDuration(workedToday)} · logged {formatDuration(loggedToday)} · diff{" "}
+            {formatDiff(workedToday - loggedToday)}
+          </dd>
+          {weekSummary && (
+            <>
+              <dt>This week</dt>
+              <dd>worked {formatDuration(workedThisWeek)}</dd>
+            </>
+          )}
+          {monthSummary && (
+            <>
+              <dt>This month</dt>
+              <dd>worked {formatDuration(workedThisMonth)}</dd>
+            </>
+          )}
+        </dl>
       )}
     </section>
   );
