@@ -15,7 +15,14 @@ const DARK_QUERY = "(prefers-color-scheme: dark)";
  * schedule) repaints the app without a restart.
  */
 
-let systemListener: ((e: MediaQueryListEvent) => void) | null = null;
+/** `window.matchMedia()` returns a *new* `MediaQueryList` on every call, so a listener
+ *  can only be removed through the very object it was added to. Holding one for the
+ *  module's lifetime is what makes the detach below actually detach: otherwise every
+ *  apply leaks a listener, and those leaked listeners keep rewriting `data-theme` from
+ *  the OS scheme after the user has explicitly chosen Light or Dark. */
+const darkMedia = window.matchMedia(DARK_QUERY);
+
+let systemListener: (() => void) | null = null;
 
 function isValid(value: string | null): value is ThemePreference {
   return value === "system" || value === "light" || value === "dark";
@@ -23,16 +30,23 @@ function isValid(value: string | null): value is ThemePreference {
 
 function resolve(preference: ThemePreference): "light" | "dark" {
   if (preference !== "system") return preference;
-  return window.matchMedia(DARK_QUERY).matches ? "dark" : "light";
+  return darkMedia.matches ? "dark" : "light";
 }
 
-/** Keeps the native window chrome in step with the page; a no-op outside Tauri. */
+/**
+ * Keeps the native title bar in step with the page. Best-effort by design: outside
+ * Tauri (`npm run dev` in a plain browser) `getCurrentWindow()` throws synchronously,
+ * and the command itself rejects asynchronously if the window ACL ever stops granting
+ * `core:window:allow-set-theme` — so both paths are swallowed. The page is already
+ * correct either way; only the chrome would be out of step.
+ */
 function setWindowTheme(preference: ThemePreference) {
   try {
-    void getCurrentWindow().setTheme(preference === "system" ? null : preference);
+    getCurrentWindow()
+      .setTheme(preference === "system" ? null : preference)
+      .catch(() => {});
   } catch {
-    // `npm run dev` runs the frontend in a plain browser, where there is no window
-    // to theme. Nothing to recover from — the page itself is already correct.
+    // No Tauri window to theme.
   }
 }
 
@@ -45,16 +59,15 @@ export function applyTheme(preference: ThemePreference) {
     // Only costs us the flash-free launch below; the DB remains the real store.
   }
 
-  const media = window.matchMedia(DARK_QUERY);
   if (systemListener) {
-    media.removeEventListener("change", systemListener);
+    darkMedia.removeEventListener("change", systemListener);
     systemListener = null;
   }
   if (preference === "system") {
     systemListener = () => {
       document.documentElement.dataset.theme = resolve("system");
     };
-    media.addEventListener("change", systemListener);
+    darkMedia.addEventListener("change", systemListener);
   }
 
   setWindowTheme(preference);

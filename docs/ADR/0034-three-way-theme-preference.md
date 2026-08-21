@@ -67,6 +67,38 @@ Supporting decisions:
   60% (40% black over a dark page barely separates it) and the modal gains a border,
   since the shadowless panel would otherwise blend into the scrim.
 
+## Addendum — 2026-08-21, after review
+
+An adversarial review of the commit found two of the behaviours above did not actually
+work, plus three contrast/paint defects. All are fixed in the follow-up commit; the
+decisions stand, the implementation did not match them:
+
+- **Live system-following was broken by `matchMedia` identity.** `window.matchMedia()`
+  returns a *new* `MediaQueryList` each call, so removing the listener through a freshly
+  obtained one detached nothing. Every apply leaked a listener, and after choosing
+  Light or Dark explicitly, those leaked listeners kept rewriting `data-theme` from the
+  OS scheme — the app contradicting its own stored preference. A single module-scope
+  `MediaQueryList` is now used for both add and remove.
+- **`setTheme` was denied at runtime.** `core:window:allow-set-theme` is not part of
+  `core:default`, so every call rejected inside the real app; the `void` also left that
+  async rejection unhandled, which the surrounding try/catch never covered (it only
+  caught `getCurrentWindow()`'s synchronous throw). The permission is now granted in
+  `capabilities/default.json` and the promise has its own `.catch`.
+- **`--danger` was checked against the panel, not the page.** Setup, header-sync and
+  statistics errors render straight onto the page background, where `#e5695b` was
+  4.15:1. Now `#ea766a`.
+- **Dark gridlines were darker than the panel they sit on** (`#2c2c2a` on `#262626`,
+  1.08:1 — invisible). Now `#3f3f3c`.
+- **The flash-free claim only held from bundle execution onward.** The webview paints
+  its default white before any of the app's CSS or JS exists. An inline style and
+  script in `index.html` now set the attribute and background at parse time; they
+  duplicate a few values from `theme.ts` and `App.css` deliberately, since nothing
+  imported can run that early.
+
+`--stats-other` remains faint against the panel (1.5:1) — it is the deliberate
+"neutral, don't look at me" colour and is equally faint in light mode, so it was left
+symmetric rather than fixed in one theme only.
+
 ## Alternatives considered
 
 - **System-following only, no override** — one less setting, but it can't serve someone

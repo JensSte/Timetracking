@@ -777,7 +777,9 @@ label {
      flips to near-black to stay readable on it. */
   --accent: #7aa2ec;
   --accent-contrast: #1a1a1a;
-  --danger: #e5695b;
+  /* Checked against the page background (#2f2f2f), not just the panel — setup,
+     header sync and statistics errors render straight onto the page. */
+  --danger: #ea766a;
   --pending: #d9a521;
   --synced: #66bb6a;
 
@@ -791,7 +793,8 @@ label {
   --series-8: #e66767;
   --stats-break: #b0aea5;
   --stats-other: #44433f;
-  --chart-gridline: #2c2c2a;
+  /* Must be *lighter* than the panel it's drawn on, unlike the light theme's rule. */
+  --chart-gridline: #3f3f3c;
   --chart-axis-label: #9b9992;
 }
 
