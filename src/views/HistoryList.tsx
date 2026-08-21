@@ -150,6 +150,14 @@ export function HistoryList({ tasks, jiraBaseUrl, refreshSignal, onEntriesChange
               </tr>
             ))}
           </tbody>
+          {/* Counts every row shown for the day, the running entry included — it's a
+              row in the table like any other. */}
+          <tfoot>
+            <tr>
+              <th scope="row">Entries</th>
+              <td colSpan={5}>{entries.length}</td>
+            </tr>
+          </tfoot>
         </table>
       )}
       {editingEntry !== undefined && (
