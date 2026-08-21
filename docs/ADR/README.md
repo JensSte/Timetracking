@@ -41,3 +41,4 @@ it instead, so the history of *why* stays intact.
 | [0029](0029-editable-worked-time-by-shifting-the-start.md) | Today's worked time is edited by typing the total; the start moves to match | Superseded by 0030 |
 | [0030](0030-edit-workday-start-and-end-times.md) | Edit a workday's start and end times directly | Accepted |
 | [0031](0031-current-sprint-filter-on-by-default.md) | The "current sprint" filter is on by default, and My Tasks shows its count | Accepted |
+| [0032](0032-ui-preferences-in-a-key-value-table.md) | UI preferences live in a key/value table, behind a Settings modal | Accepted |
