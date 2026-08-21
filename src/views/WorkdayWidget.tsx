@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { DailySummary, RangeSummary, WorkBreak, WorkdayStatus } from "../api/types";
 import { formatDuration, formatElapsed } from "../lib/format";
 import { EditBreakForm } from "./EditBreakForm";
+import { EditWorkedTimeForm } from "./EditWorkedTimeForm";
 
 interface WorkdayWidgetProps {
   activeWorkday: WorkdayStatus | null;
@@ -12,7 +13,8 @@ interface WorkdayWidgetProps {
   onEndWorkday: () => Promise<void>;
   onStartBreak: () => Promise<void>;
   onEndBreak: () => Promise<void>;
-  onBreakUpdated: () => Promise<void>;
+  /** Re-read the workday and the period summaries after an edit to either. */
+  onWorkdayEdited: () => Promise<void>;
 }
 
 function breakSeconds(brk: WorkBreak, nowMs: number): number {
@@ -48,12 +50,13 @@ export function WorkdayWidget({
   onEndWorkday,
   onStartBreak,
   onEndBreak,
-  onBreakUpdated,
+  onWorkdayEdited,
 }: WorkdayWidgetProps) {
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingBreak, setEditingBreak] = useState<WorkBreak | null>(null);
+  const [editingWorkedTime, setEditingWorkedTime] = useState(false);
 
   useEffect(() => {
     if (!activeWorkday) return;
@@ -84,16 +87,12 @@ export function WorkdayWidget({
     : 0;
   const loggedToday = dailySummary?.loggedSeconds ?? 0;
 
-  // Week/month totals are only as fresh as their last fetch, but they both include
-  // today's contribution as of that same fetch (see `loadPeriodSummaries`) — swapping
-  // that stale slice for the live-ticking `workedToday` keeps them from visibly lagging
-  // behind the "Today" line while a workday is running.
-  const workedThisWeek = weekSummary
-    ? weekSummary.workedSeconds - (dailySummary?.workedSeconds ?? 0) + workedToday
-    : 0;
-  const workedThisMonth = monthSummary
-    ? monthSummary.workedSeconds - (dailySummary?.workedSeconds ?? 0) + workedToday
-    : 0;
+  // The week and month rows report *logged* time — what actually reached Jira over
+  // the period, which is the number worth watching once the day is past. Unlike
+  // worked time it doesn't tick, so it's taken straight from the fetched summaries
+  // with no live-slice substitution (see ADR-0028).
+  const loggedThisWeek = weekSummary?.loggedSeconds ?? 0;
+  const loggedThisMonth = monthSummary?.loggedSeconds ?? 0;
 
   return (
     <section className="workday-widget">
@@ -150,8 +149,15 @@ export function WorkdayWidget({
           )}
         </p>
       )}
+      {editingWorkedTime && (
+        <EditWorkedTimeForm
+          workedSeconds={Math.round(workedToday)}
+          onClose={() => setEditingWorkedTime(false)}
+          onSaved={onWorkdayEdited}
+        />
+      )}
       {editingBreak && (
-        <EditBreakForm brk={editingBreak} onClose={() => setEditingBreak(null)} onSaved={onBreakUpdated} />
+        <EditBreakForm brk={editingBreak} onClose={() => setEditingBreak(null)} onSaved={onWorkdayEdited} />
       )}
       {(activeWorkday || dailySummary) && (
         <dl className="workday-summary">
@@ -159,17 +165,27 @@ export function WorkdayWidget({
           <dd>
             worked {formatDuration(workedToday)} · logged {formatDuration(loggedToday)} · diff{" "}
             {formatDiff(workedToday - loggedToday)}
+            {activeWorkday && (
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => setEditingWorkedTime(true)}
+                disabled={busy}
+              >
+                Edit
+              </button>
+            )}
           </dd>
           {weekSummary && (
             <>
               <dt>This week</dt>
-              <dd>worked {formatDuration(workedThisWeek)}</dd>
+              <dd>logged {formatDuration(loggedThisWeek)}</dd>
             </>
           )}
           {monthSummary && (
             <>
               <dt>This month</dt>
-              <dd>worked {formatDuration(workedThisMonth)}</dd>
+              <dd>logged {formatDuration(loggedThisMonth)}</dd>
             </>
           )}
         </dl>

@@ -26,3 +26,27 @@ export function formatElapsed(seconds: number): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
+
+/**
+ * Parses a worked-time total as typed by hand — "6h 59m", "6h", "6.5h", "45m",
+ * "6:59" or a bare number of minutes — into seconds. Returns null if it can't make sense of the
+ * input, so the caller can say so rather than silently saving a wrong number.
+ */
+export function parseDurationToSeconds(input: string): number | null {
+  const text = input.trim().toLowerCase();
+  if (!text) return null;
+
+  const hm = text.match(/^(\d+(?:[.,]\d+)?)\s*h(?:\s*(\d+)\s*m?)?$/);
+  if (hm) return Math.round(Number(hm[1].replace(",", ".")) * 3600) + Number(hm[2] ?? 0) * 60;
+
+  const mOnly = text.match(/^(\d+)\s*m$/);
+  if (mOnly) return Number(mOnly[1]) * 60;
+
+  const clock = text.match(/^(\d+):([0-5]\d)$/);
+  if (clock) return Number(clock[1]) * 3600 + Number(clock[2]) * 60;
+
+  const bare = text.match(/^\d+$/);
+  if (bare) return Number(text) * 60;
+
+  return null;
+}

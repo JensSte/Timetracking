@@ -81,6 +81,7 @@ pub fn run() {
             commands::workday::start_break,
             commands::workday::end_break,
             commands::workday::update_break,
+            commands::workday::set_worked_seconds,
             commands::workday::get_daily_summary,
             commands::workday::get_week_summary,
             commands::workday::get_month_summary,

@@ -23,6 +23,14 @@ pub enum WorkdayError {
     InvalidBreakBounds,
     #[error("break must stay within its workday's time span")]
     BreakOutsideWorkday,
+    #[error("there is no workday today to adjust")]
+    NoWorkdayToday,
+    #[error("worked time cannot be negative")]
+    NegativeWorkedTime,
+    #[error("that would move today's start before midnight — adjust the times directly instead")]
+    WorkedTimeBeforeMidnight,
+    #[error("that would move today's start past a break or its end — shorten the breaks first")]
+    WorkedTimeCollidesWithBreaks,
     #[error(transparent)]
     Db(#[from] rusqlite::Error),
 }
@@ -181,6 +189,68 @@ pub fn prior_today_seconds(
     Ok((worked, breaks_total))
 }
 
+/// Sets today's total worked time to `requested_seconds` by moving the *current*
+/// workday session's start — the last session of the day, which is the running one if
+/// a workday is open. Breaks and every earlier session of the day are left exactly as
+/// they are, so the edit only ever absorbs the difference into the one span that is
+/// still the user's "now": moving the start earlier adds worked time, later removes it.
+///
+/// Why the start and not the end: while a workday is running there is no end to move
+/// (it is `now`, which keeps ticking), so the start is the only handle that works in
+/// both the running and the already-ended case.
+///
+/// Rejected rather than silently clamped: a total that would push the start before
+/// local midnight (it would no longer belong to `work_date`), or past the session's
+/// end or any of its breaks (which would make the day's arithmetic inconsistent with
+/// the breaks the user can see). Both cases mean the intended edit is bigger than
+/// this one span, and are better fixed by editing the times directly.
+pub fn set_worked_seconds(
+    conn: &Connection,
+    requested_seconds: i64,
+    now: DateTime<Utc>,
+) -> Result<WorkDay, WorkdayError> {
+    if requested_seconds < 0 {
+        return Err(WorkdayError::NegativeWorkedTime);
+    }
+    let date = local_date(now);
+    let date_str = date.format("%Y-%m-%d").to_string();
+    let days = work_days_repo::work_days_for_date(conn, &date_str)?;
+    // The session to absorb the change: the open one, else the latest of the day.
+    let target = days
+        .iter()
+        .find(|d| d.ended_at.is_none())
+        .or_else(|| days.iter().max_by_key(|d| d.started_at))
+        .ok_or(WorkdayError::NoWorkdayToday)?
+        .clone();
+
+    let mut today_worked = 0i64;
+    for day in &days {
+        let breaks = work_days_repo::breaks_for_day(conn, day.id)?;
+        today_worked += worked_seconds(day, &breaks, now);
+    }
+
+    let delta = requested_seconds - today_worked;
+    if delta == 0 {
+        return Ok(target);
+    }
+    let new_start = target.started_at - chrono::Duration::seconds(delta);
+
+    let midnight = local_instant_utc(date.and_hms_opt(0, 0, 0).unwrap());
+    if new_start < midnight {
+        return Err(WorkdayError::WorkedTimeBeforeMidnight);
+    }
+    let session_end = target.ended_at.unwrap_or(now);
+    if new_start > session_end {
+        return Err(WorkdayError::WorkedTimeCollidesWithBreaks);
+    }
+    let breaks = work_days_repo::breaks_for_day(conn, target.id)?;
+    if breaks.iter().any(|b| b.started_at < new_start) {
+        return Err(WorkdayError::WorkedTimeCollidesWithBreaks);
+    }
+
+    Ok(work_days_repo::update_started_at(conn, target.id, new_start)?)
+}
+
 /// A local calendar instant, expressed as a UTC `DateTime`. Ambiguous local times (a
 /// DST fold) resolve to the earlier instant; this is a best-effort choice for a
 /// twice-a-year edge case, not a correctness-critical one.
@@ -260,6 +330,99 @@ mod tests {
 
     fn now() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 0).unwrap()
+    }
+
+    /// Today's total worked time, the same way the UI adds it up.
+    fn worked_today(conn: &Connection, at: DateTime<Utc>) -> i64 {
+        let date_str = local_date(at).format("%Y-%m-%d").to_string();
+        work_days_repo::work_days_for_date(conn, &date_str)
+            .unwrap()
+            .iter()
+            .map(|d| worked_seconds(d, &work_days_repo::breaks_for_day(conn, d.id).unwrap(), at))
+            .sum()
+    }
+
+    #[test]
+    fn setting_worked_time_moves_the_start_by_the_difference() {
+        let conn = open_in_memory().unwrap();
+        let started = now();
+        start_workday(&conn, started).unwrap();
+        let at = started + chrono::Duration::hours(2);
+        assert_eq!(worked_today(&conn, at), 2 * 3600);
+
+        let day = set_worked_seconds(&conn, 3 * 3600, at).unwrap();
+
+        assert_eq!(day.started_at, started - chrono::Duration::hours(1));
+        assert_eq!(worked_today(&conn, at), 3 * 3600, "the total must come out at what was asked for");
+    }
+
+    #[test]
+    fn setting_worked_time_leaves_breaks_out_of_it() {
+        let conn = open_in_memory().unwrap();
+        let started = now();
+        start_workday(&conn, started).unwrap();
+        start_break(&conn, started + chrono::Duration::minutes(30)).unwrap();
+        end_break(&conn, started + chrono::Duration::hours(1)).unwrap();
+        let at = started + chrono::Duration::hours(2);
+        assert_eq!(worked_today(&conn, at), 90 * 60, "2h span minus a 30m break");
+
+        set_worked_seconds(&conn, 2 * 3600, at).unwrap();
+
+        assert_eq!(worked_today(&conn, at), 2 * 3600);
+        let breaks = work_days_repo::breaks_for_day(&conn, get_running(&conn).unwrap().unwrap().id).unwrap();
+        assert_eq!(breaks.len(), 1, "the break itself must be untouched");
+        assert_eq!(breaks[0].started_at, started + chrono::Duration::minutes(30));
+    }
+
+    #[test]
+    fn setting_worked_time_only_moves_the_current_session() {
+        let conn = open_in_memory().unwrap();
+        let date_str = local_date(now()).format("%Y-%m-%d").to_string();
+        let earlier = work_days_repo::insert_running(&conn, &date_str, now()).unwrap();
+        work_days_repo::stop_running(&conn, earlier.id, now() + chrono::Duration::hours(1)).unwrap();
+        let resumed_at = now() + chrono::Duration::hours(2);
+        start_workday(&conn, resumed_at).unwrap();
+        let at = now() + chrono::Duration::hours(3);
+        assert_eq!(worked_today(&conn, at), 2 * 3600, "1h banked + 1h running");
+
+        set_worked_seconds(&conn, 3 * 3600, at).unwrap();
+
+        assert_eq!(worked_today(&conn, at), 3 * 3600);
+        let reloaded = work_days_repo::get_by_id(&conn, earlier.id).unwrap().unwrap();
+        assert_eq!(reloaded.started_at, now(), "the earlier session must not move");
+    }
+
+    #[test]
+    fn shrinking_worked_time_past_a_break_is_rejected() {
+        let conn = open_in_memory().unwrap();
+        let started = now();
+        start_workday(&conn, started).unwrap();
+        start_break(&conn, started + chrono::Duration::minutes(30)).unwrap();
+        end_break(&conn, started + chrono::Duration::hours(1)).unwrap();
+        let at = started + chrono::Duration::hours(2);
+
+        // 30m worked would need the start moved to 09:30 — past the break's start.
+        let result = set_worked_seconds(&conn, 30 * 60, at);
+
+        assert!(matches!(result, Err(WorkdayError::WorkedTimeCollidesWithBreaks)));
+        assert_eq!(worked_today(&conn, at), 90 * 60, "the rejected edit must not have applied");
+    }
+
+    #[test]
+    fn worked_time_that_would_start_before_midnight_is_rejected() {
+        let conn = open_in_memory().unwrap();
+        start_workday(&conn, now()).unwrap();
+        let result = set_worked_seconds(&conn, 48 * 3600, now() + chrono::Duration::hours(1));
+        assert!(matches!(result, Err(WorkdayError::WorkedTimeBeforeMidnight)));
+    }
+
+    #[test]
+    fn setting_worked_time_needs_a_workday_and_a_positive_total() {
+        let conn = open_in_memory().unwrap();
+        assert!(matches!(set_worked_seconds(&conn, 3600, now()), Err(WorkdayError::NoWorkdayToday)));
+
+        start_workday(&conn, now()).unwrap();
+        assert!(matches!(set_worked_seconds(&conn, -1, now()), Err(WorkdayError::NegativeWorkedTime)));
     }
 
     #[test]
