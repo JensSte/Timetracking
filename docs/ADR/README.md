@@ -32,3 +32,4 @@ it instead, so the history of *why* stays intact.
 | [0020](0020-editable-completed-breaks.md) | Allow editing a completed break's start/end time | Accepted |
 | [0021](0021-statistics-view-ticket-and-interval-breakdown.md) | Statistics view — per-ticket totals and an interval breakdown chart | Accepted |
 | [0022](0022-statistics-chart-legend-toggling-and-empty-period-filter.md) | Full, toggleable statistics-chart legend; hide empty periods by default | Accepted |
+| [0031](0031-current-sprint-filter-on-by-default.md) | The "current sprint" filter is on by default, and My Tasks shows its count | Accepted |
