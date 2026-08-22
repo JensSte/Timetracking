@@ -9,9 +9,8 @@
       Paints the right background before the JS bundle (and with it App.css) arrives.
       Without this the webview shows its default white for the first frames, which a
       user who has chosen Dark sees at every launch. The script mirrors what
-      `src/theme.ts` does — it reads the same localStorage key and falls back to the
-      OS scheme — so the module's own `initTheme()` finds the attribute already
-      correct and changes nothing.
+      `src/theme.ts` does — same localStorage key, same fallback to the OS scheme — so
+      the module's own `initTheme()` finds the attribute already correct.
     -->
     <style>
       :root {

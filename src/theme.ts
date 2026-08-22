@@ -77,7 +77,8 @@ export function applyTheme(preference: ThemePreference) {
  * Applies the last known preference before the first paint. The real value lives in
  * the app DB and arrives asynchronously, so it's mirrored to localStorage on every
  * apply purely so an explicit Dark user on a light system doesn't get a white frame
- * at launch. The DB value re-applies moments later, normally as a no-op.
+ * at launch — `index.html` reads the same key even earlier, before this module runs.
+ * The DB value re-applies moments later, normally as a no-op.
  */
 export function initTheme() {
   let stored: string | null = null;

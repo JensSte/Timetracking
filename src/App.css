@@ -474,20 +474,12 @@ label {
   gap: 0.4em;
 }
 
-/* Caps the list to a fixed number of visible rows, then scrolls. Each row is ~37px
-   tall (dominated by the Start button's padding/border), plus the list's own 0.4em
-   row gap — see the row-count-specific max-height below. */
+/* Scrolls once the list is taller than the row count from Settings. The height itself
+   is set inline per panel (rows × ~37px, the height of a row dominated by the Start
+   button's padding/border, plus the list's own 0.4em row gap). */
 .task-list-capped {
   overflow-y: auto;
   overflow-x: hidden;
-}
-
-.my-tasks-list {
-  max-height: calc(5 * 37px + 4 * 0.4em);
-}
-
-.favorites-list {
-  max-height: calc(4 * 37px + 3 * 0.4em);
 }
 
 .task-list li {
@@ -793,7 +785,8 @@ label {
   --series-8: #e66767;
   --stats-break: #b0aea5;
   --stats-other: #44433f;
-  /* Must be *lighter* than the panel it's drawn on, unlike the light theme's rule. */
+  /* Must be *lighter* than the panel it's drawn on, unlike the light theme's rule —
+     the light value inverted would sit below the background and vanish. */
   --chart-gridline: #3f3f3c;
   --chart-axis-label: #9b9992;
 }

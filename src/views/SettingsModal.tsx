@@ -8,9 +8,9 @@ interface SettingsModalProps {
 }
 
 /**
- * App preferences. Currently just how tall the two task panels are; the shape is
- * built to grow, since the backing store is a key/value table rather than columns
- * (see ADR-0032).
+ * App preferences — panel heights, the sprint default, picker ordering and theme so
+ * far. The shape is built to grow, since the backing store is a key/value table
+ * rather than columns (see ADR-0032).
  */
 export function SettingsModal({ preferences, onClose, onSave }: SettingsModalProps) {
   const [myTasksRows, setMyTasksRows] = useState(preferences.myTasksRows);

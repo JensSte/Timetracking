@@ -115,6 +115,13 @@ pub fn remove_favorite(conn: &Connection, task_id: i64) -> rusqlite::Result<()> 
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::db::connection::open_in_memory;
+    use chrono::TimeZone;
+
+    fn now() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 8, 10, 12, 0, 0).unwrap()
+    }
 
     #[test]
     fn last_tracked_at_follows_the_newest_time_entry() {
@@ -133,13 +140,6 @@ mod tests {
 
         let reloaded = get_task_by_id(&conn, task.id).unwrap().unwrap();
         assert_eq!(reloaded.last_tracked_at, Some(later), "the newest entry wins");
-    }
-    use super::*;
-    use crate::db::connection::open_in_memory;
-    use chrono::TimeZone;
-
-    fn now() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 8, 10, 12, 0, 0).unwrap()
     }
 
     #[test]
