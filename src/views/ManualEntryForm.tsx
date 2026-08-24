@@ -72,7 +72,15 @@ export function ManualEntryForm({ tasks, entry, onClose, onSaved }: ManualEntryF
         <h2>{entry ? "Edit time entry" : "New manual entry"}</h2>
         <label>
           Ticket
-          <TaskPicker tasks={tasks} value={taskId} onChange={setTaskId} />
+          {/* `fallbackLabel` covers editing an entry whose ticket isn't in the list —
+              tracked once and never favorited, or picked out of Jira in an earlier
+              session (ADR-0027, ADR-0036). */}
+          <TaskPicker
+            tasks={tasks}
+            value={taskId}
+            onChange={setTaskId}
+            fallbackLabel={entry ? `${entry.taskKey} — ${entry.taskSummary}` : undefined}
+          />
         </label>
         <label>
           Date
