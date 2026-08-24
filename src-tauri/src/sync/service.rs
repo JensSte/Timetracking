@@ -166,6 +166,65 @@ mod tests {
         assert!(reloaded.is_synced);
     }
 
+    /// Makes every later write on the connection fail, to reach the one state worth
+    /// distinguishing: Jira has already accepted the worklog and only the local
+    /// bookkeeping can still go wrong.
+    fn make_read_only(conn: &Mutex<Connection>) {
+        let guard = conn.lock().unwrap();
+        guard.execute_batch("PRAGMA query_only = 1").unwrap();
+    }
+
+    /// One ticket, one pending hour-long entry.
+    fn seed(conn: &Mutex<Connection>) -> crate::db::models::TimeEntry {
+        let guard = conn.lock().unwrap();
+        let task_id = tasks_repo::upsert_favorite_task(&guard, "PROJ-1", "Ticket", now()).unwrap().id;
+        time_entries_repo::insert_manual(&guard, task_id, now(), now(), 3600, None).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_worklog_jira_accepted_but_we_failed_to_record_is_not_reported_as_success() {
+        let conn = Mutex::new(open_in_memory().unwrap());
+        let entry = seed(&conn);
+        make_read_only(&conn);
+
+        let client = FakeJiraClient::default();
+        let err = sync_entry(&conn, &client, &entry).await.unwrap_err();
+
+        assert!(matches!(err, SyncError::Recording(_)), "got {err:?}");
+        assert_eq!(
+            client.calls.lock().unwrap().len(),
+            1,
+            "Jira was called and accepted it — that is what makes this case dangerous"
+        );
+
+        let guard = conn.lock().unwrap();
+        let reloaded = time_entries_repo::get_by_id(&guard, entry.id).unwrap().unwrap();
+        assert!(
+            !reloaded.is_synced,
+            "the row still reads pending, which is exactly why the message warns about a retry"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_batch_reports_a_recording_failure_instead_of_swallowing_it() {
+        let conn = Mutex::new(open_in_memory().unwrap());
+        let entry = seed(&conn);
+        make_read_only(&conn);
+
+        let outcomes = sync_all(&conn, &FakeJiraClient::default()).await;
+
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].entry_id, entry.id);
+        let message = outcomes[0]
+            .result
+            .as_ref()
+            .expect_err("this used to be swallowed and reported as a success");
+        assert!(
+            message.contains("logged twice"),
+            "the duplicate warning has to reach the sync report, got: {message}"
+        );
+    }
+
     #[tokio::test]
     async fn one_failure_does_not_block_the_rest_of_the_batch() {
         let conn = Mutex::new(open_in_memory().unwrap());

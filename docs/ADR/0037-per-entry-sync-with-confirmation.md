@@ -56,15 +56,33 @@ A new `SyncError` distinguishes two failures that used to look alike:
   unchanged — it stays pending either way — so this is a reporting fix, not a behaviour
   change, and it turns a silently mis-reported duplicate risk into a visible one.
 - Two sync paths can now be in flight at once (header batch plus a row), and nothing
-  stops them picking up the same entry and logging it twice. In practice the modal's
-  backdrop covers the header button and both buttons disable while busy, so it takes
-  deliberate effort — but it is not prevented *by construction* the way the
-  single-running-timer rule is (ADR-0006). A sync-in-flight guard in `AppState` is the
-  obvious fix if this ever bites; it is deliberately not in this change, which would
-  otherwise grow a second concern.
+  stops them picking up the same entry. The modal's backdrop covers the header button, so
+  *open the modal, then click the header* is blocked — but the reverse ordering is not
+  guarded at all: start the batch, then open a row and confirm while it is still in
+  flight. Both paths snapshot the row with `jira_worklog_id = NULL` and both POST. The
+  result is worse than logging the time twice: the second `mark_synced` overwrites
+  `jira_worklog_id` with the second worklog's id, so the first worklog is left in Jira
+  with nothing pointing at it — this app can never update or account for it again.
+
+  This is not prevented *by construction* the way the single-running-timer rule is
+  (ADR-0006), and `busy` flags in two separate components cannot prevent it, because
+  neither can see the other. The fix is a sync-in-flight guard in `AppState` covering
+  both commands. It is deliberately out of this change — it is a decision about the sync
+  engine's concurrency, not about a button, and it belongs to its own record.
+
+- A related pre-existing gap this change does *not* close: `mark_synced` ignores how many
+  rows it updated, so if an entry is deleted while its worklog POST is in flight, the
+  UPDATE matches nothing, returns `Ok`, and the sync reports success — time logged in
+  Jira against a record that no longer exists locally. `SyncError::Recording` therefore
+  covers a genuine SQLite failure but not a vanished row.
 - Rows with three actions (`Edit`, `Sync`, `Delete`) are the common case for a pending
   manual entry now. They are all `link-button`s in one cell, so the cell is wider than
   it was; nothing else moves.
+- The preview is a snapshot taken when the dialog opens, while `sync_entry` re-reads the
+  row by id when it runs. What is sent can therefore differ from what was shown, though
+  only via the concurrent-batch window above — the backdrop blocks the Edit dialog that
+  would otherwise be the easy way to change the row underneath.
+
 - Syncing per entry makes it easy to leave the rest of the day pending indefinitely,
   which the header's unsynced count already surfaces — and which is the point, since the
   spec makes sync manual precisely so the user decides what goes to Jira and when.

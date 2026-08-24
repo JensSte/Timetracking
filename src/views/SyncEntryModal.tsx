@@ -11,7 +11,7 @@ interface SyncEntryModalProps {
 
 /**
  * Confirms syncing one entry, and shows exactly what will be sent first. Sync is the one
- * action in the app that leaves the machine, and per ADR-0008 it either creates a worklog
+ * action in the app that leaves the machine, and per ADR-0007 it either creates a worklog
  * or overwrites one that already exists — worth seeing spelled out before it happens,
  * since neither is something the app can take back.
  */
@@ -26,12 +26,19 @@ export function SyncEntryModal({ entry, onClose, onSynced }: SyncEntryModalProps
     setError(null);
     try {
       await syncEntry(entry.id);
-      await onSynced();
-      onClose();
     } catch (err) {
       setError(err as string);
+      setBusy(false);
+      return;
+    }
+    // Synced. A failure refreshing the views afterwards is not a sync failure and must
+    // not be reported as one — the entry is in Jira either way, and saying otherwise
+    // would invite a retry that the backend then refuses as already-synced.
+    try {
+      await onSynced();
     } finally {
       setBusy(false);
+      onClose();
     }
   }
 
