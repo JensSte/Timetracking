@@ -45,3 +45,4 @@ it instead, so the history of *why* stays intact.
 | [0033](0033-recency-ordered-ticket-pickers.md) | Ticket pickers rank by what you last tracked, configurable | Accepted |
 | [0034](0034-three-way-theme-preference.md) | A three-way theme preference, resolved in JS to a `data-theme` attribute | Accepted |
 | [0035](0035-local-first-ticket-search.md) | Ticket search is local-first, and reaches Jira only on request | Accepted |
+| [0036](0036-ticket-picker-escalates-to-jira.md) | The ticket picker widens its search in three steps, ending at Jira on request | Accepted |

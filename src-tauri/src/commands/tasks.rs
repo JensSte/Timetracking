@@ -113,6 +113,22 @@ pub async fn search_jira_issues(state: State<'_, AppState>, query: String) -> Ap
     Ok(client.search_issues(&jql, SEARCH_LIMIT).await?)
 }
 
+/// Files a ticket the user picked out of Jira search results as a known local ticket, so
+/// a timer or entry has a row to point at. Takes the summary rather than re-fetching it:
+/// the caller got both key and summary from `search_jira_issues` a moment ago, and the
+/// whole point of the local-first search (ADR-0035, ADR-0036) is not to spend a second
+/// lookup on data already in hand. Neither flag is claimed — picking a ticket to track is
+/// not the same as favoriting it.
+#[tauri::command]
+pub fn ensure_task(state: State<'_, AppState>, jira_key: String, summary: String) -> AppResult<Task> {
+    let jira_key = jira_key.trim().to_uppercase();
+    if jira_key.is_empty() {
+        return Err(crate::error::AppError::Validation("A ticket key is required".into()));
+    }
+    let conn = state.db.lock().unwrap();
+    Ok(tasks_repo::upsert_known_task(&conn, &jira_key, summary.trim(), Utc::now())?)
+}
+
 /// Favorites a ticket the app already knows, by row id. No Jira call: the row already
 /// carries the key and summary a favorite needs. This is the path the local half of the
 /// ticket search uses; `add_favorite_by_key` below is for a ticket only Jira knows about.

@@ -150,6 +150,27 @@ pub fn upsert_favorite_task(
     Ok(get_task_by_key(conn, jira_key)?.expect("row was just upserted"))
 }
 
+/// Records a ticket as merely *known*, touching no flag: the row a timer or manual entry
+/// can point at. Used when a ticket is picked out of Jira search results, which says
+/// nothing about whether it is assigned or a favorite. An existing row keeps its flags
+/// and just takes the fresher summary.
+pub fn upsert_known_task(
+    conn: &Connection,
+    jira_key: &str,
+    summary: &str,
+    now: DateTime<Utc>,
+) -> rusqlite::Result<Task> {
+    conn.execute(
+        "INSERT INTO tasks (jira_key, summary, last_synced_at)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(jira_key) DO UPDATE SET
+            summary = excluded.summary,
+            last_synced_at = excluded.last_synced_at",
+        params![jira_key, summary, now],
+    )?;
+    Ok(get_task_by_key(conn, jira_key)?.expect("row was just upserted"))
+}
+
 /// Sets the favorite flag on a row that already exists — the local-only path for
 /// favoriting a ticket the search already found in the cache, with no Jira lookup to
 /// re-fetch a summary the row already has. `None` if there is no such row.
@@ -311,6 +332,21 @@ mod tests {
         }
 
         assert_eq!(search_tasks(&conn, "shared", 3).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn upsert_known_task_claims_no_flags_and_keeps_the_ones_a_row_has() {
+        let conn = open_in_memory().unwrap();
+
+        let fresh = upsert_known_task(&conn, "PROJ-5", "Picked out of Jira search", now()).unwrap();
+        assert!(!fresh.is_favorite, "picking a ticket does not favorite it");
+        assert!(!fresh.is_assigned_to_me, "nor claim it is assigned");
+        assert!(search_tasks(&conn, "PROJ-5", 25).unwrap().len() == 1, "but it is known now");
+
+        upsert_favorite_task(&conn, "PROJ-5", "Picked out of Jira search", now()).unwrap();
+        let again = upsert_known_task(&conn, "PROJ-5", "Renamed in Jira since", now()).unwrap();
+        assert!(again.is_favorite, "an existing row keeps the flags it had");
+        assert_eq!(again.summary, "Renamed in Jira since", "and takes the fresher summary");
     }
 
     #[test]
