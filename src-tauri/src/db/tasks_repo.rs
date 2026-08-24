@@ -52,51 +52,49 @@ pub fn list_favorite_tasks(conn: &Connection) -> rusqlite::Result<Vec<Task>> {
     rows.collect()
 }
 
-/// Turns one search term into a `LIKE` pattern: lower-cased, wrapped in wildcards, and
-/// with any wildcard the user typed themselves escaped, so searching for `100%` looks
-/// for a literal per-cent sign instead of matching every row.
-fn like_pattern(term: &str) -> String {
-    let escaped = term.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
-    format!("%{}%", escaped.to_lowercase())
+/// Every task, ranked the way the pickers rank them (ADR-0033): most recently tracked
+/// first, never-tracked ones after in key order. `search_tasks` filters this, so the
+/// ordering lives in one place.
+fn list_all_ranked(conn: &Connection) -> rusqlite::Result<Vec<Task>> {
+    let mut stmt = conn.prepare(&format!(
+        "{SELECT_TASK} ORDER BY last_tracked_at IS NULL, last_tracked_at DESC, tasks.jira_key"
+    ))?;
+    let rows = stmt.query_map([], row_to_task)?;
+    rows.collect()
 }
 
 /// Searches every ticket the app already knows locally — assigned, favorited, or merely
 /// tracked at some point — with no Jira call involved (ADR-0035).
 ///
-/// Matching mirrors the picker's rule (ADR-0027): each whitespace-separated term must
-/// appear somewhere in `KEY — summary`, in any order, so the same typing finds the same
-/// ticket wherever it is typed. SQLite's `lower()`/`LIKE` fold ASCII only, which is all
-/// the frontend's comparison effectively does for the keys and summaries Jira returns.
+/// Matching is the picker's rule (ADR-0027), *identically*: each whitespace-separated
+/// term must appear somewhere in the lower-cased `KEY — summary`, in any order. It is
+/// applied in Rust rather than as a SQL `LIKE`, because SQLite's `lower()` folds ASCII
+/// only while the frontend's `toLowerCase()` is full Unicode — so a summary containing
+/// `Änderung` was findable in the picker's in-memory list and invisible to this search,
+/// which is exactly the disagreement the shared rule is supposed to rule out. Scanning
+/// the table costs nothing at this size (tens of rows) and there is no second dialect of
+/// the matching rule to keep in step.
 ///
-/// Ranking answers "what did you most likely mean": an exact key match first, then the
-/// most recently tracked, then never-tracked tickets alphabetically — the same order the
-/// pickers use (ADR-0033).
-pub fn search_tasks(conn: &Connection, query: &str, limit: i64) -> rusqlite::Result<Vec<Task>> {
-    let terms: Vec<String> = query.split_whitespace().map(like_pattern).collect();
+/// An exact key match is promoted to the front; everything else keeps the ranking above.
+pub fn search_tasks(conn: &Connection, query: &str, limit: usize) -> rusqlite::Result<Vec<Task>> {
+    let terms: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
     if terms.is_empty() {
         return Ok(Vec::new());
     }
+    let exact_key = query.trim().to_lowercase();
 
-    let conditions = (1..=terms.len())
-        .map(|i| format!("lower(tasks.jira_key || ' — ' || tasks.summary) LIKE ?{i} ESCAPE '\\'"))
-        .collect::<Vec<_>>()
-        .join(" AND ");
-    // `limit` is interpolated rather than bound: it is a caller-side constant, and binding
-    // it would mean a heterogeneous parameter list for the sake of one integer.
-    let sql = format!(
-        "{SELECT_TASK} WHERE {conditions} \
-         ORDER BY lower(tasks.jira_key) = ?{exact} DESC, \
-                  last_tracked_at IS NULL, last_tracked_at DESC, tasks.jira_key \
-         LIMIT {limit}",
-        exact = terms.len() + 1,
-    );
+    let mut hits: Vec<Task> = list_all_ranked(conn)?
+        .into_iter()
+        .filter(|task| {
+            let label = format!("{} — {}", task.jira_key, task.summary).to_lowercase();
+            terms.iter().all(|term| label.contains(term))
+        })
+        .collect();
 
-    let mut bindings = terms;
-    bindings.push(query.trim().to_lowercase());
-
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(bindings), row_to_task)?;
-    rows.collect()
+    // Stable, so the recency ranking survives within each of the two groups.
+    hits.sort_by_key(|task| task.jira_key.to_lowercase() != exact_key);
+    hits.truncate(limit);
+    Ok(hits)
 }
 
 /// Clears `is_assigned_to_me` (and, since it's only ever meaningful alongside it,
@@ -303,6 +301,8 @@ mod tests {
         assert_eq!(hits[1].jira_key, "PROJ-7");
     }
 
+    /// There is no `LIKE` any more, so wildcards are literal by construction rather than
+    /// by escaping — worth keeping pinned, since a future move back to SQL would break it.
     #[test]
     fn wildcards_in_the_query_are_matched_literally() {
         let conn = open_in_memory().unwrap();
@@ -322,6 +322,44 @@ mod tests {
 
         assert!(search_tasks(&conn, "", 25).unwrap().is_empty());
         assert!(search_tasks(&conn, "   ", 25).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_folds_case_for_non_ascii_letters_too() {
+        let conn = open_in_memory().unwrap();
+        plain_task(&conn, "PROJ-1", "Änderung am Export prüfen");
+
+        for query in ["Änderung", "änderung", "PRÜFEN", "prüfen", "änderung prüfen"] {
+            let hits = search_tasks(&conn, query, 25).unwrap();
+            assert_eq!(hits.len(), 1, "{query} must find the ticket");
+        }
+    }
+
+    #[test]
+    fn search_handles_more_than_two_terms() {
+        let conn = open_in_memory().unwrap();
+        plain_task(&conn, "PROJ-1", "Fix the frontend linter job again");
+        plain_task(&conn, "PROJ-2", "Fix the backend linter job");
+
+        assert_eq!(search_tasks(&conn, "fix linter frontend", 25).unwrap().len(), 1);
+        assert_eq!(search_tasks(&conn, "fix the linter job", 25).unwrap().len(), 2);
+        assert!(search_tasks(&conn, "fix linter frontend backend", 25).unwrap().is_empty());
+    }
+
+    #[test]
+    fn never_tracked_hits_fall_back_to_lexicographic_key_order() {
+        let conn = open_in_memory().unwrap();
+        for key in ["PROJ-2", "PROJ-10", "PROJ-1"] {
+            plain_task(&conn, key, "Shared summary");
+        }
+
+        let hits = search_tasks(&conn, "shared", 25).unwrap();
+        let keys: Vec<&str> = hits.iter().map(|t| t.jira_key.as_str()).collect();
+        assert_eq!(
+            keys,
+            vec!["PROJ-1", "PROJ-10", "PROJ-2"],
+            "lexicographic, not numeric — PROJ-10 before PROJ-2 is the documented behaviour"
+        );
     }
 
     #[test]

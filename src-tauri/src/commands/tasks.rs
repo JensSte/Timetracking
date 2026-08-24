@@ -5,7 +5,7 @@ use tauri::State;
 
 use crate::db::models::Task;
 use crate::db::tasks_repo;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::jira::models::JiraIssue;
 use crate::jira::JiraClient;
 use crate::state::AppState;
@@ -92,7 +92,7 @@ pub fn list_favorite_tasks(state: State<'_, AppState>) -> AppResult<Vec<Task>> {
 #[tauri::command]
 pub fn search_local_tickets(state: State<'_, AppState>, query: String) -> AppResult<Vec<Task>> {
     let conn = state.db.lock().unwrap();
-    Ok(tasks_repo::search_tasks(&conn, &query, SEARCH_LIMIT.into())?)
+    Ok(tasks_repo::search_tasks(&conn, &query, SEARCH_LIMIT as usize)?)
 }
 
 /// Preview-only lookup (no DB write) used by the "add favorite" search box once the local
@@ -109,7 +109,10 @@ pub async fn search_jira_issues(state: State<'_, AppState>, query: String) -> Ap
         let issue = client.get_issue(&query.to_uppercase()).await?;
         return Ok(vec![issue]);
     }
-    let jql = format!("text ~ \"{}\" ORDER BY updated DESC", query.replace('"', "\\\""));
+    // Backslash first, then quote: escaping only the quote leaves a query ending in `\`
+    // free to close the quoted term early and inject the rest of the JQL.
+    let escaped = query.replace('\\', "\\\\").replace('"', "\\\"");
+    let jql = format!("text ~ \"{escaped}\" ORDER BY updated DESC");
     Ok(client.search_issues(&jql, SEARCH_LIMIT).await?)
 }
 
@@ -119,14 +122,30 @@ pub async fn search_jira_issues(state: State<'_, AppState>, query: String) -> Ap
 /// whole point of the local-first search (ADR-0035, ADR-0036) is not to spend a second
 /// lookup on data already in hand. Neither flag is claimed — picking a ticket to track is
 /// not the same as favoriting it.
-#[tauri::command]
-pub fn ensure_task(state: State<'_, AppState>, jira_key: String, summary: String) -> AppResult<Task> {
+fn ensure_task_impl(state: &AppState, jira_key: &str, summary: &str) -> AppResult<Task> {
     let jira_key = jira_key.trim().to_uppercase();
-    if jira_key.is_empty() {
-        return Err(crate::error::AppError::Validation("A ticket key is required".into()));
+    // Rows are never deleted (ADR-0009) and nothing lists a merely-known ticket, so
+    // anything filed here is permanent and only reachable by search. Both fields are
+    // therefore checked rather than trusted: the shipped caller passes what Jira just
+    // returned, but this command is open to the whole frontend.
+    if !looks_like_issue_key(&jira_key) {
+        return Err(AppError::Validation(format!(
+            "{jira_key:?} is not a Jira issue key."
+        )));
+    }
+    let summary = summary.trim();
+    if summary.is_empty() {
+        return Err(AppError::Validation(
+            "A ticket summary is required — an empty one would overwrite the summary already stored.".into(),
+        ));
     }
     let conn = state.db.lock().unwrap();
-    Ok(tasks_repo::upsert_known_task(&conn, &jira_key, summary.trim(), Utc::now())?)
+    Ok(tasks_repo::upsert_known_task(&conn, &jira_key, summary, Utc::now())?)
+}
+
+#[tauri::command]
+pub fn ensure_task(state: State<'_, AppState>, jira_key: String, summary: String) -> AppResult<Task> {
+    ensure_task_impl(&state, &jira_key, &summary)
 }
 
 /// Favorites a ticket the app already knows, by row id. No Jira call: the row already
@@ -136,7 +155,7 @@ pub fn ensure_task(state: State<'_, AppState>, jira_key: String, summary: String
 pub fn add_favorite(state: State<'_, AppState>, task_id: i64) -> AppResult<Task> {
     let conn = state.db.lock().unwrap();
     tasks_repo::set_favorite(&conn, task_id)?
-        .ok_or_else(|| crate::error::AppError::NotFound(format!("No ticket with id {task_id}")))
+        .ok_or_else(|| AppError::NotFound(format!("No ticket with id {task_id}")))
 }
 
 #[tauri::command]
@@ -184,6 +203,57 @@ mod tests {
         let state = AppState::new(open_in_memory().unwrap());
         state.set_jira_client(Arc::new(client));
         state
+    }
+
+    #[test]
+    fn ensure_task_normalizes_the_key_instead_of_filing_a_second_row() {
+        let state = setup(FakeJiraClient::default());
+
+        let first = ensure_task_impl(&state, "proj-5", "Picked out of Jira").unwrap();
+        let again = ensure_task_impl(&state, "  PROJ-5  ", "Picked out of Jira").unwrap();
+
+        assert_eq!(first.jira_key, "PROJ-5");
+        assert_eq!(again.id, first.id, "lower case and padding must land on the same row");
+    }
+
+    #[test]
+    fn ensure_task_keeps_the_flags_an_existing_row_already_has() {
+        let state = setup(FakeJiraClient::default());
+        {
+            let conn = state.db.lock().unwrap();
+            tasks_repo::upsert_favorite_task(&conn, "PROJ-6", "A favorite", Utc::now()).unwrap();
+            tasks_repo::upsert_assigned_task(&conn, "PROJ-6", "A favorite", true, Utc::now()).unwrap();
+        }
+
+        let task = ensure_task_impl(&state, "PROJ-6", "Renamed in Jira since").unwrap();
+
+        assert!(task.is_favorite, "favoriting must survive being picked in the timer");
+        assert!(task.is_assigned_to_me);
+        assert!(task.is_in_current_sprint);
+        assert_eq!(task.summary, "Renamed in Jira since");
+    }
+
+    #[test]
+    fn ensure_task_refuses_anything_that_is_not_an_issue_key() {
+        let state = setup(FakeJiraClient::default());
+
+        for key in ["", "   ", "hello world", "-5", "PROJ-", "100%"] {
+            let err = ensure_task_impl(&state, key, "A summary").unwrap_err();
+            assert!(matches!(err, AppError::Validation(_)), "{key:?} produced {err:?}");
+        }
+    }
+
+    #[test]
+    fn ensure_task_refuses_a_blank_summary_rather_than_erasing_the_stored_one() {
+        let state = setup(FakeJiraClient::default());
+        ensure_task_impl(&state, "PROJ-7", "The real summary").unwrap();
+
+        let err = ensure_task_impl(&state, "PROJ-7", "   ").unwrap_err();
+        assert!(matches!(err, AppError::Validation(_)), "got {err:?}");
+
+        let conn = state.db.lock().unwrap();
+        let task = tasks_repo::get_task_by_key(&conn, "PROJ-7").unwrap().unwrap();
+        assert_eq!(task.summary, "The real summary", "the stored summary must be intact");
     }
 
     #[tokio::test]
