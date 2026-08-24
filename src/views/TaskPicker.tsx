@@ -67,8 +67,9 @@ export function TaskPicker({
   const [jiraHits, setJiraHits] = useState<JiraIssue[] | null>(null);
   const [jiraSearching, setJiraSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** A ticket resolved through Jira, so the closed field can label it right away even
-   *  though the list the parent owns doesn't have it yet. */
+  /** The ticket last picked here, so the closed field can label it even when the list the
+   *  parent owns doesn't contain it — which is the normal case for anything found by the
+   *  DB search or in Jira rather than in My Tasks or Favorites. */
   const [picked, setPicked] = useState<Task | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Read when an await resolves, to drop an answer to a query already typed away.
@@ -130,6 +131,10 @@ export function TaskPicker({
   const fromJira = options.filter((o) => o.kind === "jira").length;
 
   function commit(task: Task) {
+    // Remembered before handing the id up: a ticket found by the DB search or in Jira is
+    // not in `tasks`, and without this the field would go blank on picking it — which
+    // reads as "the click did nothing" even though the selection was made.
+    setPicked(task);
     onChange(task.id);
     setQuery(null);
     inputRef.current?.blur();
@@ -139,9 +144,7 @@ export function TaskPicker({
   async function commitJiraIssue(issue: JiraIssue) {
     setError(null);
     try {
-      const task = await ensureTask(issue.key, issue.summary);
-      setPicked(task);
-      commit(task);
+      commit(await ensureTask(issue.key, issue.summary));
     } catch (err) {
       setError(err as string);
     }
