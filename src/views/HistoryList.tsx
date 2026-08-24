@@ -7,6 +7,7 @@ import type { Task, TimeEntry } from "../api/types";
 import { formatDuration } from "../lib/format";
 import { jiraIssueUrl } from "../lib/jira";
 import { ManualEntryForm } from "./ManualEntryForm";
+import { SyncEntryModal } from "./SyncEntryModal";
 
 /** A local calendar day's bounds, as ISO instants, for filtering history to that day. */
 function dayRange(date: Date): { from: string; to: string } {
@@ -27,6 +28,13 @@ function canDelete(entry: TimeEntry): boolean {
   return entry.endedAt !== null && !entry.isSynced && entry.jiraWorklogId === null;
 }
 
+/** Anything finished and pending, whether it has ever been pushed before or not — an
+ *  entry edited after a sync is pending again (ADR-0007) and syncing it updates its
+ *  existing worklog. The running entry has no settled duration, so it can't be sent. */
+function canSync(entry: TimeEntry): boolean {
+  return entry.endedAt !== null && !entry.isSynced;
+}
+
 interface HistoryListProps {
   tasks: Task[];
   jiraBaseUrl: string;
@@ -38,6 +46,7 @@ export function HistoryList({ tasks, jiraBaseUrl, refreshSignal, onEntriesChange
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null | undefined>(undefined);
+  const [syncingEntry, setSyncingEntry] = useState<TimeEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function reload() {
@@ -151,6 +160,11 @@ export function HistoryList({ tasks, jiraBaseUrl, refreshSignal, onEntriesChange
                       Edit
                     </button>
                   )}
+                  {canSync(entry) && (
+                    <button className="link-button" onClick={() => setSyncingEntry(entry)}>
+                      Sync
+                    </button>
+                  )}
                   {canDelete(entry) && (
                     <button className="link-button" onClick={() => handleDelete(entry.id)}>
                       Delete
@@ -180,6 +194,13 @@ export function HistoryList({ tasks, jiraBaseUrl, refreshSignal, onEntriesChange
           entry={editingEntry ?? undefined}
           onClose={() => setEditingEntry(undefined)}
           onSaved={handleSaved}
+        />
+      )}
+      {syncingEntry && (
+        <SyncEntryModal
+          entry={syncingEntry}
+          onClose={() => setSyncingEntry(null)}
+          onSynced={handleSaved}
         />
       )}
     </section>

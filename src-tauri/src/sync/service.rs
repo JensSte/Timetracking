@@ -2,7 +2,9 @@ use std::sync::Mutex;
 
 use rusqlite::Connection;
 
+use crate::db::models::TimeEntry;
 use crate::db::time_entries_repo;
+use crate::jira::models::JiraError;
 use crate::jira::JiraClient;
 
 #[derive(Debug, Clone)]
@@ -12,6 +14,58 @@ pub struct SyncOutcome {
     /// `Ok(jira_worklog_id)` on success, `Err(message)` on failure — the row is left
     /// completely untouched on failure, so a later retry naturally re-selects it.
     pub result: Result<String, String>,
+}
+
+/// Why syncing one entry failed. Worth distinguishing: `Jira` means nothing was logged
+/// and a retry is free, while `Recording` means Jira *did* accept the worklog and only
+/// the local bookkeeping failed — the entry still looks pending, so an unwitting retry
+/// would log the time twice.
+#[derive(Debug, thiserror::Error)]
+pub enum SyncError {
+    #[error("{0}")]
+    Jira(#[from] JiraError),
+
+    #[error(
+        "Jira accepted the worklog but recording it here failed: {0}. Check the ticket in Jira \
+         before syncing this entry again, or the time may end up logged twice."
+    )]
+    Recording(#[from] rusqlite::Error),
+}
+
+/// Pushes one entry to Jira and, on success, records the returned worklog id against it.
+///
+/// A worklog is created when the row carries no `jira_worklog_id` and updated when it
+/// does, which is how an entry edited after syncing re-syncs without duplicating
+/// (ADR-0007, ADR-0008). On failure the row is left completely untouched, so it stays
+/// pending and any later attempt naturally retries it. The DB mutex is taken only once
+/// the network call has returned, never across it.
+///
+/// This is the one step both sync paths share: the batch below loops over it, and
+/// `commands::sync::sync_entry` calls it for a single entry (ADR-0037).
+pub async fn sync_entry(
+    conn: &Mutex<Connection>,
+    client: &dyn JiraClient,
+    entry: &TimeEntry,
+) -> Result<String, SyncError> {
+    let comment = entry.comment.as_deref();
+    let seconds = entry.duration_seconds.unwrap_or(0);
+
+    let worklog = match &entry.jira_worklog_id {
+        Some(worklog_id) => {
+            client
+                .update_worklog(&entry.task_key, worklog_id, entry.started_at, seconds, comment)
+                .await?
+        }
+        None => {
+            client
+                .add_worklog(&entry.task_key, entry.started_at, seconds, comment)
+                .await?
+        }
+    };
+
+    let guard = conn.lock().unwrap();
+    time_entries_repo::mark_synced(&guard, entry.id, &worklog.id)?;
+    Ok(worklog.id)
 }
 
 /// Pushes every pending (`is_synced = 0`) entry to Jira, oldest first. A failing
@@ -27,35 +81,8 @@ pub async fn sync_all(conn: &Mutex<Connection>, client: &dyn JiraClient) -> Vec<
 
     let mut outcomes = Vec::with_capacity(pending.len());
     for entry in pending {
-        let comment = entry.comment.as_deref();
-        let seconds = entry.duration_seconds.unwrap_or(0);
-
-        let result = match &entry.jira_worklog_id {
-            Some(worklog_id) => {
-                client
-                    .update_worklog(&entry.task_key, worklog_id, entry.started_at, seconds, comment)
-                    .await
-            }
-            None => {
-                client
-                    .add_worklog(&entry.task_key, entry.started_at, seconds, comment)
-                    .await
-            }
-        };
-
-        let outcome = match result {
-            Ok(worklog) => {
-                let guard = conn.lock().unwrap();
-                let _ = time_entries_repo::mark_synced(&guard, entry.id, &worklog.id);
-                SyncOutcome { entry_id: entry.id, task_key: entry.task_key.clone(), result: Ok(worklog.id) }
-            }
-            Err(e) => SyncOutcome {
-                entry_id: entry.id,
-                task_key: entry.task_key.clone(),
-                result: Err(e.to_string()),
-            },
-        };
-        outcomes.push(outcome);
+        let result = sync_entry(conn, client, &entry).await.map_err(|e| e.to_string());
+        outcomes.push(SyncOutcome { entry_id: entry.id, task_key: entry.task_key, result });
     }
     outcomes
 }

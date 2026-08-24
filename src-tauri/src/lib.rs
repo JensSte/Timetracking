@@ -79,6 +79,7 @@ pub fn run() {
             commands::entries::list_time_entries,
             commands::entries::delete_draft_entry,
             commands::sync::sync_all,
+            commands::sync::sync_entry,
             commands::sync::list_unsynced_count,
             commands::workday::get_active_workday,
             commands::workday::start_workday,

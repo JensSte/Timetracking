@@ -132,6 +132,9 @@ export const deleteDraftEntry = (id: number) => invoke<void>("delete_draft_entry
 
 export const syncAll = () => invoke<SyncReport>("sync_all");
 
+/** Syncs one entry on its own; resolves with the entry as it stands afterwards. */
+export const syncEntry = (id: number) => invoke<TimeEntry>("sync_entry", { id });
+
 export const listUnsyncedCount = () => invoke<number>("list_unsynced_count");
 
 export const isTrayAvailable = () => invoke<boolean>("is_tray_available");
