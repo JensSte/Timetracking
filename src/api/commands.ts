@@ -59,6 +59,11 @@ export const searchLocalTickets = (query: string) =>
 export const searchJiraIssues = (query: string) =>
   invoke<JiraIssue[]>("search_jira_issues", { query });
 
+/** Files a ticket picked out of Jira search results as locally known, so it can be
+ *  tracked against. Passes the summary already fetched instead of looking it up again. */
+export const ensureTask = (jiraKey: string, summary: string) =>
+  invoke<Task>("ensure_task", { jiraKey, summary });
+
 /** Favorites a ticket already in the local cache — no Jira lookup. */
 export const addFavorite = (taskId: number) => invoke<Task>("add_favorite", { taskId });
 

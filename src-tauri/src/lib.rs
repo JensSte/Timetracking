@@ -65,6 +65,7 @@ pub fn run() {
             commands::tasks::list_favorite_tasks,
             commands::tasks::search_local_tickets,
             commands::tasks::search_jira_issues,
+            commands::tasks::ensure_task,
             commands::tasks::add_favorite,
             commands::tasks::add_favorite_by_key,
             commands::tasks::remove_favorite,
