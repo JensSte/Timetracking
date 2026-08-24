@@ -776,6 +776,25 @@ label {
   overflow-y: auto;
 }
 
+/* The read-back of an entry in the sync confirmation: label column sized to its widest
+   term, values wrapping freely beside it. */
+.entry-preview {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.4em 0.9em;
+  margin: 1em 0 0;
+}
+
+.entry-preview dt {
+  color: var(--muted);
+}
+
+.entry-preview dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

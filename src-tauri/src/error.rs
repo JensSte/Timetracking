@@ -24,6 +24,9 @@ pub enum AppError {
     Stats(#[from] crate::stats::engine::StatsError),
 
     #[error("{0}")]
+    Sync(#[from] crate::sync::service::SyncError),
+
+    #[error("{0}")]
     Validation(String),
 
     #[error("{0}")]
