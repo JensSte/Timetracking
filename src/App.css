@@ -514,6 +514,19 @@ label {
   white-space: nowrap;
 }
 
+/* Marks a search hit that came from Jira rather than from the local ticket cache — the
+   ones that cost a network call and aren't known to the app yet. */
+.task-origin {
+  font-size: 0.75em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 0.35em;
+  white-space: nowrap;
+}
+
 .favorite-search {
   display: flex;
   gap: 0.5em;

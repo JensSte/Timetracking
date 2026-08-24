@@ -10,6 +10,10 @@ use crate::jira::models::JiraIssue;
 use crate::jira::JiraClient;
 use crate::state::AppState;
 
+/// How many hits one ticket search returns, per source. The same cap on the local and
+/// the Jira side keeps either from crowding the other out when both are on screen.
+const SEARCH_LIMIT: u32 = 25;
+
 /// Matches a Jira issue key like `PROJ-123`: an all-caps (letters+digits) project
 /// prefix starting with a letter, a dash, then digits. Written by hand instead of
 /// pulling in the `regex` crate for one small check.
@@ -81,8 +85,19 @@ pub fn list_favorite_tasks(state: State<'_, AppState>) -> AppResult<Vec<Task>> {
     Ok(tasks_repo::list_favorite_tasks(&conn)?)
 }
 
-/// Preview-only lookup (no DB write) used by the "add favorite" search box: a direct
-/// issue key gets an exact lookup, anything else is treated as free-text/JQL.
+/// Searches the tickets already known locally — assigned, favorited, or tracked at some
+/// point — with no Jira call at all. The ticket search box calls this as you type and
+/// escalates to `search_jira_issues` only when asked, so finding a ticket you have seen
+/// before never touches the network (ADR-0035).
+#[tauri::command]
+pub fn search_local_tickets(state: State<'_, AppState>, query: String) -> AppResult<Vec<Task>> {
+    let conn = state.db.lock().unwrap();
+    Ok(tasks_repo::search_tasks(&conn, &query, SEARCH_LIMIT.into())?)
+}
+
+/// Preview-only lookup (no DB write) used by the "add favorite" search box once the local
+/// search above has come up short: a direct issue key gets an exact lookup, anything else
+/// is treated as free-text/JQL.
 #[tauri::command]
 pub async fn search_jira_issues(state: State<'_, AppState>, query: String) -> AppResult<Vec<JiraIssue>> {
     let client = state.require_jira_client()?;
@@ -95,7 +110,17 @@ pub async fn search_jira_issues(state: State<'_, AppState>, query: String) -> Ap
         return Ok(vec![issue]);
     }
     let jql = format!("text ~ \"{}\" ORDER BY updated DESC", query.replace('"', "\\\""));
-    Ok(client.search_issues(&jql, 25).await?)
+    Ok(client.search_issues(&jql, SEARCH_LIMIT).await?)
+}
+
+/// Favorites a ticket the app already knows, by row id. No Jira call: the row already
+/// carries the key and summary a favorite needs. This is the path the local half of the
+/// ticket search uses; `add_favorite_by_key` below is for a ticket only Jira knows about.
+#[tauri::command]
+pub fn add_favorite(state: State<'_, AppState>, task_id: i64) -> AppResult<Task> {
+    let conn = state.db.lock().unwrap();
+    tasks_repo::set_favorite(&conn, task_id)?
+        .ok_or_else(|| crate::error::AppError::NotFound(format!("No ticket with id {task_id}")))
 }
 
 #[tauri::command]
