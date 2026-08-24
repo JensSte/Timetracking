@@ -52,8 +52,15 @@ export const listMyTasks = () => invoke<Task[]>("list_my_tasks");
 
 export const listFavoriteTasks = () => invoke<Task[]>("list_favorite_tasks");
 
+/** Tickets already known locally (assigned, favorited, or tracked before) — no network. */
+export const searchLocalTickets = (query: string) =>
+  invoke<Task[]>("search_local_tickets", { query });
+
 export const searchJiraIssues = (query: string) =>
   invoke<JiraIssue[]>("search_jira_issues", { query });
+
+/** Favorites a ticket already in the local cache — no Jira lookup. */
+export const addFavorite = (taskId: number) => invoke<Task>("add_favorite", { taskId });
 
 export const addFavoriteByKey = (jiraKey: string) =>
   invoke<Task>("add_favorite_by_key", { jiraKey });
