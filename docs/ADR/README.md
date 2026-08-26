@@ -49,3 +49,4 @@ it instead, so the history of *why* stays intact.
 | [0037](0037-per-entry-sync-with-confirmation.md) | A single entry can be synced on its own, behind a preview | Accepted |
 | [0038](0038-separate-dev-and-prod-database-and-keychain.md) | Separate SQLite database and keychain entry for dev vs. prod builds | Accepted |
 | [0039](0039-jira-search-inline-in-manual-entry-form.md) | Search Jira inline in the manual-entry form for one-off tickets | Superseded by 0036 |
+| [0040](0040-logout-lives-in-settings.md) | Disconnecting from Jira lives in Settings and is called "Log out" | Accepted |
