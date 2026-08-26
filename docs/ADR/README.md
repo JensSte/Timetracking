@@ -47,3 +47,5 @@ it instead, so the history of *why* stays intact.
 | [0035](0035-local-first-ticket-search.md) | Ticket search is local-first, and reaches Jira only on request | Accepted |
 | [0036](0036-ticket-picker-escalates-to-jira.md) | The ticket picker widens its search in three steps, ending at Jira on request | Accepted |
 | [0037](0037-per-entry-sync-with-confirmation.md) | A single entry can be synced on its own, behind a preview | Accepted |
+| [0038](0038-separate-dev-and-prod-database-and-keychain.md) | Separate SQLite database and keychain entry for dev vs. prod builds | Accepted |
+| [0039](0039-jira-search-inline-in-manual-entry-form.md) | Search Jira inline in the manual-entry form for one-off tickets | Superseded by 0036 |
