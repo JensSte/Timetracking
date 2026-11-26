@@ -82,17 +82,21 @@ export function MainView({ onLoggedOut }: { onLoggedOut: () => void }) {
   // workday when the window comes back (focus, or un-hidden) and every 30 s while it's
   // visible (ADR-0045). `refreshWorkday` skips a read while another is still running
   // and leaves the store untouched when nothing changed, so this neither piles up
-  // requests nor re-renders the panel.
+  // requests nor re-renders the panel. On focus/visibility only the workday itself is
+  // re-read: the focus handler above already reloads the summaries (through
+  // `historyRefreshSignal`), and a second, parallel summary read would only overlap it.
   useEffect(() => {
-    const refresh = () => {
-      if (document.visibilityState === "visible") refreshWorkday().catch(() => {});
+    const refresh = (summaries: boolean) => {
+      if (document.visibilityState === "visible") refreshWorkday({ summaries }).catch(() => {});
     };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    const interval = setInterval(refresh, WORKDAY_REFRESH_INTERVAL_MS);
+    const onComeBack = () => refresh(false);
+    const onInterval = () => refresh(true);
+    window.addEventListener("focus", onComeBack);
+    document.addEventListener("visibilitychange", onComeBack);
+    const interval = setInterval(onInterval, WORKDAY_REFRESH_INTERVAL_MS);
     return () => {
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", onComeBack);
+      document.removeEventListener("visibilitychange", onComeBack);
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

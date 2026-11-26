@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --test 'src/**/*.test.ts'",
+    "test": "node --import ./scripts/test-hooks.mjs --test 'src/**/*.test.ts'",
     "tauri": "tauri"
   },
   "dependencies": {

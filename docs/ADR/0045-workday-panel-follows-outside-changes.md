@@ -22,9 +22,11 @@ the break's length but wasn't.
 30 s while it is visible. It goes through the same read as everything else
 (`get_active_workday` + `list_today_breaks`, both cheap local queries); no new Tauri
 command. The period summaries (today/week/month, also local queries) are re-read on
-every refresh too: a session the CLI backfilled entirely in the past leaves the
-open-workday read unchanged but moves today's worked total, and a failed summary read
-is simply retried next time.
+every interval refresh too: a session the CLI backfilled entirely in the past leaves
+the open-workday read unchanged but moves today's worked total, and a failed summary
+read is simply retried next time. On focus the window already reloads the summaries
+through its existing focus handler, so the focus/visibility refresh reads only the
+workday rather than start a second, overlapping summary read.
 
 **No overlapping reads, no stale overwrite, no flicker.** All workday reads go through
 one loader (`lib/workdaySync.ts::createWorkdayLoader`): a background poll is skipped
@@ -47,8 +49,10 @@ place in the "Today: worked … · logged …" line, which is live in both state
 
 - A CLI change shows up within 30 s, or at once when the user switches to the window.
 - A failed click after an outside change no longer leaves a confusing error behind.
-- The frontend gets its first tests: pure helpers run with Node's built-in runner
-  (`npm test`, `node --test`), no extra dependency. Test files are excluded from `tsc`.
+- The frontend gets its first tests, run with Node's built-in runner (`npm test`), no
+  extra dependency: the pure helpers directly, and the store through a resolve hook
+  (`scripts/test-hooks.mjs`) that fakes Tauri's `invoke` and the theme module. Test
+  files are excluded from `tsc`.
 
 ## Alternatives considered
 

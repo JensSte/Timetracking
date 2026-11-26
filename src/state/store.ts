@@ -52,9 +52,10 @@ interface AppStore {
   loadActiveWorkday: () => Promise<void>;
   /**
    * Background re-read of the workday (window focus, visibility, interval): skipped while
-   * another read is running; the period summaries are re-read the same way.
+   * another read is running; the period summaries are re-read the same way unless
+   * `summaries` is false (when the caller already reloads them another way).
    */
-  refreshWorkday: () => Promise<void>;
+  refreshWorkday: (options?: { summaries?: boolean }) => Promise<void>;
   loadDailySummary: () => Promise<void>;
   loadWeekSummary: () => Promise<void>;
   loadMonthSummary: () => Promise<void>;
@@ -229,8 +230,8 @@ export const useStore = create<AppStore>((set, get) => {
   // The summaries are polled on every refresh as well, not only when the workday read
   // changed: a session the CLI backfilled entirely in the past (start and end, no break)
   // leaves the open-workday read untouched, and a failed summary read gets retried.
-  refreshWorkday: async () => {
-    await Promise.all([workdayLoader.poll(), summaryLoader.poll()]);
+  refreshWorkday: async ({ summaries = true } = {}) => {
+    await Promise.all([workdayLoader.poll(), summaries ? summaryLoader.poll() : Promise.resolve()]);
   },
 
   loadDailySummary: async () => {
