@@ -13,6 +13,8 @@ import { SyncReportModal } from "./SyncReportModal";
 import { TimerWidget } from "./TimerWidget";
 import { WorkdayWidget } from "./WorkdayWidget";
 
+const WORKDAY_REFRESH_INTERVAL_MS = 30_000;
+
 /** `onLoggedOut` re-reads settings, which drops the app back to Setup once the token is gone. */
 export function MainView({ onLoggedOut }: { onLoggedOut: () => void }) {
   const {
@@ -38,6 +40,7 @@ export function MainView({ onLoggedOut }: { onLoggedOut: () => void }) {
     stopTimer,
     runSync,
     loadActiveWorkday,
+    refreshWorkday,
     loadPeriodSummaries,
     startWorkday,
     endWorkday,
@@ -72,6 +75,26 @@ export function MainView({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The agent CLI also clocks in/out and starts/ends breaks (ADR-0043), so re-read the
+  // workday when the window comes back (focus, or un-hidden) and every 30 s while it's
+  // visible (ADR-0045). `refreshWorkday` skips a read while another is still running
+  // and leaves the store untouched when nothing changed, so this neither piles up
+  // requests nor re-renders the panel.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") refreshWorkday().catch(() => {});
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    const interval = setInterval(refresh, WORKDAY_REFRESH_INTERVAL_MS);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      clearInterval(interval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

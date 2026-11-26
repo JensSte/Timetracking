@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { listTodayWorkdays } from "../api/commands";
 import type { DailySummary, RangeSummary, WorkBreak, WorkDay, WorkdayStatus } from "../api/types";
 import { formatDuration, formatElapsed } from "../lib/format";
+import { workdayClock } from "../lib/workdaySync";
 import { EditBreakForm } from "./EditBreakForm";
 import { EditWorkdayForm } from "./EditWorkdayForm";
 
@@ -98,6 +99,7 @@ export function WorkdayWidget({
   // stays put after clocking out — an open break still counts up to `now`.
   const breaksToday = todayBreaks.reduce((total, brk) => total + breakSeconds(brk, now), 0);
   const loggedToday = dailySummary?.loggedSeconds ?? 0;
+  const clock = activeWorkday ? workdayClock(activeWorkday, workedToday, now) : null;
 
   // The week and month rows report *logged* time — what actually reached Jira over
   // the period, which is the number worth watching once the day is past. Unlike
@@ -110,11 +112,11 @@ export function WorkdayWidget({
     <section className="workday-widget">
       {error && <p className="error">{error}</p>}
       <div className="workday-row">
-        {activeWorkday ? (
+        {activeWorkday && clock ? (
           <>
             <div className="workday-display">
-              <span className="workday-label">{activeWorkday.isOnBreak ? "On break" : "Workday"}</span>
-              <span className="workday-elapsed">{formatElapsed(workedToday)}</span>
+              <span className="workday-label">{clock.label}</span>
+              <span className="workday-elapsed">{formatElapsed(clock.seconds)}</span>
             </div>
             <div className="workday-actions">
               {activeWorkday.isOnBreak ? (

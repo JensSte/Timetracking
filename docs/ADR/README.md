@@ -54,3 +54,4 @@ it instead, so the history of *why* stays intact.
 | [0042](0042-unassigned-time-on-a-local-check-placeholder.md) | Unassigned time goes on a local `CHECK` placeholder, which never syncs | Accepted |
 | [0043](0043-agent-cli-drives-the-workday-clock.md) | The agent CLI drives the workday clock | Accepted |
 | [0044](0044-comment-field-is-a-growing-textarea.md) | The comment field is a growing textarea | Accepted |
+| [0045](0045-workday-panel-follows-outside-changes.md) | The workday panel follows changes made outside the window | Accepted |

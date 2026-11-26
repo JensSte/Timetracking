@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import * as api from "../api/commands";
 import { applyTheme } from "../theme";
+import {
+  createWorkdayLoader,
+  messageAfterFailedAction,
+  sameWorkdaySnapshot,
+  type WorkdayAction,
+  type WorkdaySnapshot,
+} from "../lib/workdaySync";
 import type {
   ActiveTimer,
   DailySummary,
@@ -42,6 +49,11 @@ interface AppStore {
   stopTimer: () => Promise<void>;
   runSync: () => Promise<SyncReport>;
   loadActiveWorkday: () => Promise<void>;
+  /**
+   * Background re-read of the workday (window focus, visibility, interval): skipped while
+   * another read is running, and also refreshes the summaries when the state changed.
+   */
+  refreshWorkday: () => Promise<void>;
   loadDailySummary: () => Promise<void>;
   loadWeekSummary: () => Promise<void>;
   loadMonthSummary: () => Promise<void>;
@@ -52,7 +64,50 @@ interface AppStore {
   endBreak: () => Promise<void>;
 }
 
-export const useStore = create<AppStore>((set, get) => ({
+export const useStore = create<AppStore>((set, get) => {
+  // One loader for every workday read, so a poll's older answer can't overwrite the
+  // re-read that follows a button click (ADR-0045).
+  const workdayLoader = createWorkdayLoader<WorkdaySnapshot>(
+    async () => {
+      const [activeWorkday, todayBreaks] = await Promise.all([
+        api.getActiveWorkday(),
+        api.listTodayBreaks(),
+      ]);
+      return { activeWorkday, todayBreaks };
+    },
+    (next) => {
+      const { activeWorkday, todayBreaks } = get();
+      // An unchanged read leaves the store alone, so a poll doesn't re-render anything.
+      if (!sameWorkdaySnapshot({ activeWorkday, todayBreaks }, next)) set(next);
+    },
+  );
+
+  // Runs a clock button's command, then re-reads the state whatever happened. If the
+  // command failed because the state had changed outside the window (the agent CLI,
+  // ADR-0043), the reloaded panel explains it: no error when it already shows what the
+  // button asked for, a short notice otherwise. Other errors pass through unchanged.
+  async function runWorkdayAction(
+    action: WorkdayAction,
+    command: () => Promise<unknown>,
+    reloadSummaries: boolean,
+  ) {
+    let failure: { err: unknown } | null = null;
+    try {
+      await command();
+    } catch (err) {
+      failure = { err };
+    }
+    await Promise.all([
+      get().loadActiveWorkday(),
+      reloadSummaries || failure ? get().loadPeriodSummaries() : Promise.resolve(),
+    ]);
+    if (failure) {
+      const message = messageAfterFailedAction(action, failure.err, get().activeWorkday);
+      if (message !== null) throw message;
+    }
+  }
+
+  return {
   settings: null,
   // Mirrors the backend's defaults so the panels render at a sane size on the very
   // first paint, before `loadPreferences` has come back.
@@ -162,14 +217,17 @@ export const useStore = create<AppStore>((set, get) => ({
     return report;
   },
 
-  // Breaks come along with the workday read: every path that changes one (start/end
-  // workday, start/end break, an edit) already refreshes this, so they can't drift.
-  loadActiveWorkday: async () => {
-    const [activeWorkday, todayBreaks] = await Promise.all([
-      api.getActiveWorkday(),
-      api.listTodayBreaks(),
-    ]);
-    set({ activeWorkday, todayBreaks });
+  // Breaks come along with the workday read, so the two can't drift apart.
+  loadActiveWorkday: () => workdayLoader.load(),
+
+  refreshWorkday: async () => {
+    const { activeWorkday, todayBreaks } = get();
+    await workdayLoader.poll();
+    const after = get();
+    if (!sameWorkdaySnapshot({ activeWorkday, todayBreaks }, after)) {
+      // Clocking in/out or a break outside the window moves the worked-time totals too.
+      await get().loadPeriodSummaries();
+    }
   },
 
   loadDailySummary: async () => {
@@ -191,35 +249,12 @@ export const useStore = create<AppStore>((set, get) => ({
     await Promise.all([get().loadDailySummary(), get().loadWeekSummary(), get().loadMonthSummary()]);
   },
 
-  startWorkday: async () => {
-    try {
-      await api.startWorkday();
-    } finally {
-      await Promise.all([get().loadActiveWorkday(), get().loadPeriodSummaries()]);
-    }
-  },
+  startWorkday: () => runWorkdayAction("startWorkday", api.startWorkday, true),
 
-  endWorkday: async () => {
-    try {
-      await api.endWorkday();
-    } finally {
-      await Promise.all([get().loadActiveWorkday(), get().loadPeriodSummaries()]);
-    }
-  },
+  endWorkday: () => runWorkdayAction("endWorkday", api.endWorkday, true),
 
-  startBreak: async () => {
-    try {
-      await api.startBreak();
-    } finally {
-      await get().loadActiveWorkday();
-    }
-  },
+  startBreak: () => runWorkdayAction("startBreak", api.startBreak, false),
 
-  endBreak: async () => {
-    try {
-      await api.endBreak();
-    } finally {
-      await Promise.all([get().loadActiveWorkday(), get().loadPeriodSummaries()]);
-    }
-  },
-}));
+  endBreak: () => runWorkdayAction("endBreak", api.endBreak, true),
+  };
+});
