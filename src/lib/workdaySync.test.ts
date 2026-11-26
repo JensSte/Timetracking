@@ -8,6 +8,8 @@ import {
   createWorkdayLoader,
   isStaleStateError,
   messageAfterFailedAction,
+  pickWorkdaySnapshot,
+  runAndReload,
   sameWorkdaySnapshot,
   workdayClock,
 } from "./workdaySync.ts";
@@ -229,4 +231,80 @@ test("on break with a clock skewed before the break start: never negative", () =
   const now = Date.parse("2026-11-26T19:06:59Z");
   const day = workday([brk(2, "2026-11-26T19:07:00Z", null)]);
   assert.equal(workdayClock(day, 100, now).seconds, 0);
+});
+
+// --- store wiring regressions (Codex review) ------------------------------------
+
+test("pickWorkdaySnapshot ignores everything but the workday, so an unchanged store compares equal", () => {
+  const day = workday([]);
+  const storeBefore = { activeWorkday: day, todayBreaks: [], dailySummary: { workedSeconds: 1 }, startBreak: () => {} };
+  const storeAfter = { activeWorkday: day, todayBreaks: [], dailySummary: { workedSeconds: 2 }, startBreak: () => {} };
+  assert.equal(sameWorkdaySnapshot(pickWorkdaySnapshot(storeBefore), pickWorkdaySnapshot(storeAfter)), true);
+});
+
+test("runAndReload: success reloads once and resolves", async () => {
+  const reloads: boolean[] = [];
+  await runAndReload("startBreak", async () => {}, async (failed) => void reloads.push(failed), () => null);
+  assert.deepEqual(reloads, [false]);
+});
+
+test("runAndReload: stale error whose goal the reloaded state meets resolves silently", async () => {
+  let state: WorkdayStatus | null = workday([]);
+  const reloads: boolean[] = [];
+  await runAndReload(
+    "startBreak",
+    async () => {
+      throw "a break is already running";
+    },
+    async (failed) => {
+      reloads.push(failed);
+      state = workday([brk(2, "2026-11-26T19:07:00Z", null)]);
+    },
+    () => state,
+  );
+  assert.deepEqual(reloads, [true]);
+});
+
+test("runAndReload: stale error with no workday left gives the short notice", async () => {
+  await assert.rejects(
+    runAndReload(
+      "startBreak",
+      async () => {
+        throw "no workday is currently running";
+      },
+      async () => {},
+      () => null,
+    ),
+    (err) => err === STALE_STATE_NOTICE,
+  );
+});
+
+test("runAndReload: when the reload fails too, the command's own error is kept", async () => {
+  await assert.rejects(
+    runAndReload(
+      "endBreak",
+      async () => {
+        throw "no break is currently running";
+      },
+      async () => {
+        throw "reload failure";
+      },
+      () => null,
+    ),
+    (err) => err === "no break is currently running",
+  );
+});
+
+test("runAndReload: a successful command whose reload fails reports the reload error", async () => {
+  await assert.rejects(
+    runAndReload(
+      "endBreak",
+      async () => {},
+      async () => {
+        throw "reload failure";
+      },
+      () => null,
+    ),
+    (err) => err === "reload failure",
+  );
 });

@@ -3,7 +3,8 @@ import * as api from "../api/commands";
 import { applyTheme } from "../theme";
 import {
   createWorkdayLoader,
-  messageAfterFailedAction,
+  pickWorkdaySnapshot,
+  runAndReload,
   sameWorkdaySnapshot,
   type WorkdayAction,
   type WorkdaySnapshot,
@@ -76,35 +77,34 @@ export const useStore = create<AppStore>((set, get) => {
       return { activeWorkday, todayBreaks };
     },
     (next) => {
-      const { activeWorkday, todayBreaks } = get();
       // An unchanged read leaves the store alone, so a poll doesn't re-render anything.
-      if (!sameWorkdaySnapshot({ activeWorkday, todayBreaks }, next)) set(next);
+      if (!sameWorkdaySnapshot(pickWorkdaySnapshot(get()), next)) set(next);
     },
+  );
+
+  // The three period summaries are read together through the same kind of loader, so a
+  // background refresh's older answer can't overwrite the totals read after a click.
+  const summaryLoader = createWorkdayLoader(
+    () => Promise.all([api.getDailySummary(), api.getWeekSummary(), api.getMonthSummary()]),
+    ([dailySummary, weekSummary, monthSummary]) => set({ dailySummary, weekSummary, monthSummary }),
   );
 
   // Runs a clock button's command, then re-reads the state whatever happened. If the
   // command failed because the state had changed outside the window (the agent CLI,
   // ADR-0043), the reloaded panel explains it: no error when it already shows what the
-  // button asked for, a short notice otherwise. Other errors pass through unchanged.
-  async function runWorkdayAction(
-    action: WorkdayAction,
-    command: () => Promise<unknown>,
-    reloadSummaries: boolean,
-  ) {
-    let failure: { err: unknown } | null = null;
-    try {
-      await command();
-    } catch (err) {
-      failure = { err };
-    }
-    await Promise.all([
-      get().loadActiveWorkday(),
-      reloadSummaries || failure ? get().loadPeriodSummaries() : Promise.resolve(),
-    ]);
-    if (failure) {
-      const message = messageAfterFailedAction(action, failure.err, get().activeWorkday);
-      if (message !== null) throw message;
-    }
+  // button asked for, a short notice otherwise. Other errors pass through unchanged,
+  // and a failing reload never hides the command's own error.
+  function runWorkdayAction(action: WorkdayAction, command: () => Promise<unknown>, reloadSummaries: boolean) {
+    return runAndReload(
+      action,
+      command,
+      (failed) =>
+        Promise.all([
+          get().loadActiveWorkday(),
+          reloadSummaries || failed ? get().loadPeriodSummaries() : Promise.resolve(),
+        ]),
+      () => get().activeWorkday,
+    );
   }
 
   return {
@@ -221,10 +221,9 @@ export const useStore = create<AppStore>((set, get) => {
   loadActiveWorkday: () => workdayLoader.load(),
 
   refreshWorkday: async () => {
-    const { activeWorkday, todayBreaks } = get();
+    const before = pickWorkdaySnapshot(get());
     await workdayLoader.poll();
-    const after = get();
-    if (!sameWorkdaySnapshot({ activeWorkday, todayBreaks }, after)) {
+    if (!sameWorkdaySnapshot(before, pickWorkdaySnapshot(get()))) {
       // Clocking in/out or a break outside the window moves the worked-time totals too.
       await get().loadPeriodSummaries();
     }
@@ -245,9 +244,7 @@ export const useStore = create<AppStore>((set, get) => {
     set({ monthSummary });
   },
 
-  loadPeriodSummaries: async () => {
-    await Promise.all([get().loadDailySummary(), get().loadWeekSummary(), get().loadMonthSummary()]);
-  },
+  loadPeriodSummaries: () => summaryLoader.load(),
 
   startWorkday: () => runWorkdayAction("startWorkday", api.startWorkday, true),
 

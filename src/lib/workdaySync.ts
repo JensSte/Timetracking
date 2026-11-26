@@ -42,6 +42,11 @@ export interface WorkdaySnapshot {
   todayBreaks: WorkBreak[];
 }
 
+/** Just the workday part of a larger state object (e.g. the whole store). */
+export function pickWorkdaySnapshot(state: WorkdaySnapshot): WorkdaySnapshot {
+  return { activeWorkday: state.activeWorkday, todayBreaks: state.todayBreaks };
+}
+
 /** Whether two reads describe the same state, so an unchanged poll doesn't re-render. */
 export function sameWorkdaySnapshot(a: WorkdaySnapshot, b: WorkdaySnapshot): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -91,6 +96,34 @@ export function messageAfterFailedAction(
 ): string | null {
   if (!isStaleStateError(err)) return String(err);
   return actionAlreadyDone(action, reloaded) ? null : STALE_STATE_NOTICE;
+}
+
+/**
+ * Runs a clock button's command, then `reload`s whatever happened. A failed command's
+ * error becomes `messageAfterFailedAction` of the reloaded state (resolving when that is
+ * null). If the reload itself fails, the command's own error wins over the reload's.
+ */
+export async function runAndReload(
+  action: WorkdayAction,
+  command: () => Promise<unknown>,
+  reload: (commandFailed: boolean) => Promise<unknown>,
+  reloadedWorkday: () => WorkdayStatus | null,
+): Promise<void> {
+  let failure: { err: unknown } | null = null;
+  try {
+    await command();
+  } catch (err) {
+    failure = { err };
+  }
+  try {
+    await reload(failure !== null);
+  } catch (reloadErr) {
+    throw failure ? failure.err : reloadErr;
+  }
+  if (failure) {
+    const message = messageAfterFailedAction(action, failure.err, reloadedWorkday());
+    if (message !== null) throw message;
+  }
 }
 
 /**
