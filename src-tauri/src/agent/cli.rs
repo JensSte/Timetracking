@@ -28,7 +28,9 @@ COMMANDS:
     delete <id>                    Delete one of the agent's own unsynced entries.
 
 ENTRY FIELDS (add):
-    ticket   Jira key, e.g. \"CTVSP-1234\"                        required
+    ticket   Jira key, e.g. \"CTVSP-1234\", or \"CHECK\" for time you
+             can't assign (local placeholder, never synced, no
+             summary needed; its comment always gets [CHECK])   required
     start    RFC 3339 time with seconds,
              e.g. \"2026-11-26T10:00:00+01:00\"                  required
     end      RFC 3339 time, in the past, after start             required

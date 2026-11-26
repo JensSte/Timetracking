@@ -671,6 +671,23 @@ label {
   color: #b3261e;
 }
 
+/* The local CHECK placeholder ticket (ADR-0042): a darker orange than "Pending", so
+   unassigned time stands out in the ticket column. */
+.ticket-check {
+  display: inline-block;
+  padding: 0.05em 0.5em;
+  border-radius: 4px;
+  background: #b45309;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  font-size: 0.9em;
+}
+
+.form-hint-check {
+  color: #b45309;
+}
+
 .badge-agent {
   margin-left: 0.4em;
   background: #ece9f7;
@@ -907,6 +924,15 @@ label {
 [data-theme="dark"] .badge-check {
   background: #4a1f1b;
   color: #f2b8b5;
+}
+
+[data-theme="dark"] .ticket-check {
+  background: #c2610c;
+  color: #1a1a1a;
+}
+
+[data-theme="dark"] .form-hint-check {
+  color: #f0a35a;
 }
 
 [data-theme="dark"] .badge-agent {

@@ -36,12 +36,22 @@ pub struct TimeEntry {
     pub created_by_agent: bool,
     /// The agent's local-only reasoning for this entry. Never sent to Jira.
     pub agent_note: Option<String>,
-    /// The comment starts with [`NEEDS_CHECK_MARKER`]: someone (usually the agent)
-    /// flagged this entry as a guess the user must confirm. Sync holds it back until
-    /// the marker is edited away. Derived, not stored, so removing the marker in the
-    /// edit form is all it takes to release the entry.
+    /// The entry sits on the local [`PLACEHOLDER_TICKET`]: time the agent couldn't
+    /// assign to a ticket (ADR-0042). It can never sync until the user picks a real one.
+    pub on_placeholder: bool,
+    /// Held back from sync until the user has reviewed it: the comment starts with
+    /// [`NEEDS_CHECK_MARKER`] (a guess on a real ticket, ADR-0041), or the entry is
+    /// `on_placeholder` (ADR-0042). Derived, not stored, so editing the marker away and
+    /// picking a real ticket in the edit form is all it takes to release the entry.
     pub needs_check: bool,
 }
+
+/// The local-only pseudo-ticket for time the agent couldn't assign (ADR-0042). It is a
+/// row in `tasks` like any other, but it is not a Jira issue key, so the app's own
+/// ticket validation never lets the user create or pick it, and the local search hides
+/// it. Entries on it never sync.
+pub const PLACEHOLDER_TICKET: &str = "CHECK";
+pub const PLACEHOLDER_SUMMARY: &str = "Unassigned time — edit the entry and pick the real ticket";
 
 /// Signal word at the start of a comment that holds an entry back from sync (ADR-0041).
 /// Matched case-insensitively after leading whitespace. Sync filters on this function

@@ -71,6 +71,11 @@ async fn sync_entry_impl(state: &AppState, id: i64) -> AppResult<TimeEntry> {
             "This entry is already in sync with Jira.".into(),
         ));
     }
+    if entry.on_placeholder {
+        return Err(AppError::Validation(
+            "This time isn't assigned to a ticket yet — edit the entry and pick the real ticket first.".into(),
+        ));
+    }
     if entry.needs_check {
         return Err(AppError::Validation(
             "This entry is flagged [CHECK] — review it and remove the marker from the comment before syncing.".into(),

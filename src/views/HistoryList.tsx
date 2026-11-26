@@ -40,6 +40,12 @@ function canSync(entry: TimeEntry): boolean {
 function statusBadge(entry: TimeEntry): { className: string; label: string; title?: string } {
   if (entry.endedAt === null) return { className: "badge badge-running", label: "Running" };
   if (entry.isSynced) return { className: "badge badge-synced", label: "Synced" };
+  if (entry.onPlaceholder)
+    return {
+      className: "badge badge-check",
+      label: "Check",
+      title: "Held back from sync — edit the entry, pick the real ticket and write a proper comment.",
+    };
   if (entry.needsCheck)
     return {
       className: "badge badge-check",
@@ -134,17 +140,26 @@ export function HistoryList({ tasks, jiraBaseUrl, refreshSignal, onEntriesChange
             {entries.map((entry) => (
               <tr key={entry.id}>
                 <td>
-                  <a
-                    className="jira-link"
-                    title={entry.taskSummary}
-                    href={jiraIssueUrl(jiraBaseUrl, entry.taskKey)}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      openUrl(jiraIssueUrl(jiraBaseUrl, entry.taskKey));
-                    }}
-                  >
-                    {entry.taskKey}
-                  </a>
+                  {entry.onPlaceholder ? (
+                    <span
+                      className="ticket-check"
+                      title="Time the orchestrator couldn't assign to a ticket — edit the entry and pick the real one."
+                    >
+                      CHECK
+                    </span>
+                  ) : (
+                    <a
+                      className="jira-link"
+                      title={entry.taskSummary}
+                      href={jiraIssueUrl(jiraBaseUrl, entry.taskKey)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openUrl(jiraIssueUrl(jiraBaseUrl, entry.taskKey));
+                      }}
+                    >
+                      {entry.taskKey}
+                    </a>
+                  )}
                 </td>
                 <td>{new Date(entry.startedAt).toLocaleString()}</td>
                 <td>{formatDuration(entry.durationSeconds)}</td>

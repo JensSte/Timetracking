@@ -1,15 +1,18 @@
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
-use super::models::{comment_needs_check, TimeEntry};
+use super::models::{comment_needs_check, TimeEntry, PLACEHOLDER_TICKET};
 
 fn row_to_time_entry(row: &Row) -> rusqlite::Result<TimeEntry> {
     let comment: Option<String> = row.get("comment")?;
+    let task_key: String = row.get("jira_key")?;
+    let on_placeholder = task_key == PLACEHOLDER_TICKET;
     Ok(TimeEntry {
-        needs_check: comment_needs_check(comment.as_deref()),
+        needs_check: on_placeholder || comment_needs_check(comment.as_deref()),
+        on_placeholder,
         id: row.get("id")?,
         task_id: row.get("task_id")?,
-        task_key: row.get("jira_key")?,
+        task_key,
         task_summary: row.get("summary")?,
         started_at: row.get("started_at")?,
         ended_at: row.get("ended_at")?,
@@ -213,7 +216,8 @@ pub fn list_entries(
 /// Entries that need to be sent to Jira, oldest first — chronological order means an
 /// interrupted sync fills the earliest gaps in Jira first, and a retry naturally
 /// picks up wherever it left off. Entries flagged `[CHECK]` are left out: they are
-/// guesses awaiting the user's review (ADR-0041).
+/// guesses awaiting the user's review (ADR-0041), and so are entries on the local
+/// `CHECK` placeholder ticket (ADR-0042).
 ///
 /// The `[CHECK]` filter runs in Rust, on the same `needs_check` the UI shows, rather than
 /// as SQL: SQLite's `ltrim` and Rust's `trim_start` disagree on what counts as leading

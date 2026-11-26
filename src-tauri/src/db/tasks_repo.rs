@@ -85,6 +85,8 @@ pub fn search_tasks(conn: &Connection, query: &str, limit: usize) -> rusqlite::R
 
     let mut hits: Vec<Task> = list_all_ranked(conn)?
         .into_iter()
+        // The agent's placeholder (ADR-0042) is never a ticket the user should pick.
+        .filter(|task| task.jira_key != crate::db::models::PLACEHOLDER_TICKET)
         .filter(|task| {
             let label = format!("{} — {}", task.jira_key, task.summary).to_lowercase();
             terms.iter().all(|term| label.contains(term))
@@ -173,7 +175,11 @@ pub fn upsert_known_task(
 /// favoriting a ticket the search already found in the cache, with no Jira lookup to
 /// re-fetch a summary the row already has. `None` if there is no such row.
 pub fn set_favorite(conn: &Connection, task_id: i64) -> rusqlite::Result<Option<Task>> {
-    conn.execute("UPDATE tasks SET is_favorite = 1 WHERE id = ?1", params![task_id])?;
+    // Never the agent's placeholder (ADR-0042): a favorite shows up in every picker.
+    conn.execute(
+        "UPDATE tasks SET is_favorite = 1 WHERE id = ?1 AND jira_key != ?2",
+        params![task_id, crate::db::models::PLACEHOLDER_TICKET],
+    )?;
     get_task_by_id(conn, task_id)
 }
 

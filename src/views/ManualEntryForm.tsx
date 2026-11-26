@@ -82,6 +82,14 @@ export function ManualEntryForm({ tasks, entry, onClose, onSaved }: ManualEntryF
             fallbackLabel={entry ? `${entry.taskKey} — ${entry.taskSummary}` : undefined}
           />
         </label>
+        {/* Still on the placeholder only if the user hasn't picked another ticket yet. */}
+        {entry?.onPlaceholder && taskId === entry.taskId && (
+          <p className="form-hint form-hint-check">
+            The orchestrator couldn&apos;t tell which ticket this time belongs to — its guess is in
+            the comment. Pick the real ticket and rewrite the comment (without [CHECK]); until
+            then this entry won&apos;t sync.
+          </p>
+        )}
         <label>
           Date
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />

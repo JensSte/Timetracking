@@ -1,7 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { TicketTotal } from "../api/types";
 import { formatDuration } from "../lib/format";
-import { jiraIssueUrl } from "../lib/jira";
+import { jiraIssueUrl, PLACEHOLDER_TICKET } from "../lib/jira";
 
 interface TicketStatsTableProps {
   totals: TicketTotal[];
@@ -28,16 +28,22 @@ export function TicketStatsTable({ totals, jiraBaseUrl }: TicketStatsTableProps)
         {totals.map((total) => (
           <tr key={total.taskId}>
             <td>
-              <a
-                className="jira-link"
-                href={jiraIssueUrl(jiraBaseUrl, total.taskKey)}
-                onClick={(e) => {
-                  e.preventDefault();
-                  openUrl(jiraIssueUrl(jiraBaseUrl, total.taskKey));
-                }}
-              >
-                {total.taskKey}
-              </a>
+              {total.taskKey === PLACEHOLDER_TICKET ? (
+                <span className="ticket-check" title="Time not assigned to a ticket yet">
+                  CHECK
+                </span>
+              ) : (
+                <a
+                  className="jira-link"
+                  href={jiraIssueUrl(jiraBaseUrl, total.taskKey)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    openUrl(jiraIssueUrl(jiraBaseUrl, total.taskKey));
+                  }}
+                >
+                  {total.taskKey}
+                </a>
+              )}
             </td>
             <td className="task-summary">{total.taskSummary}</td>
             <td>{formatDuration(total.totalSeconds)}</td>

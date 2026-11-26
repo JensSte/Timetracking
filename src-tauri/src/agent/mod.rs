@@ -20,7 +20,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use serde::Deserialize;
 
 use crate::commands::tasks::looks_like_issue_key;
-use crate::db::models::TimeEntry;
+use crate::db::models::{comment_needs_check, TimeEntry, NEEDS_CHECK_MARKER, PLACEHOLDER_SUMMARY, PLACEHOLDER_TICKET};
 use crate::db::{tasks_repo, time_entries_repo};
 use crate::error::{AppError, AppResult};
 
@@ -62,6 +62,10 @@ fn non_empty(s: Option<&str>) -> Option<&str> {
 /// summary would show up as a blank everywhere the ticket is listed.
 fn resolve_task_id(conn: &Connection, ticket: &str, summary: Option<&str>, now: DateTime<Utc>) -> AppResult<i64> {
     let key = ticket.trim().to_uppercase();
+    if key == PLACEHOLDER_TICKET {
+        // Created on first use, with a fixed summary (ADR-0042).
+        return Ok(tasks_repo::upsert_known_task(conn, PLACEHOLDER_TICKET, PLACEHOLDER_SUMMARY, now)?.id);
+    }
     if !looks_like_issue_key(&key) {
         return Err(AppError::Validation(format!("{key:?} is not a Jira issue key.")));
     }
@@ -74,6 +78,17 @@ fn resolve_task_id(conn: &Connection, ticket: &str, summary: Option<&str>, now: 
         ))
     })?;
     Ok(tasks_repo::upsert_known_task(conn, &key, summary, now)?.id)
+}
+
+/// A comment for an entry on the `CHECK` placeholder always carries the `[CHECK]`
+/// marker (ADR-0042): it describes the gap, not the work, so moving the entry to a real
+/// ticket alone must not release it to Jira — the comment has to be rewritten too.
+fn placeholder_comment(comment: Option<&str>) -> String {
+    match non_empty(comment) {
+        Some(c) if comment_needs_check(Some(c)) => c.to_owned(),
+        Some(c) => format!("{NEEDS_CHECK_MARKER} {c}"),
+        None => format!("{NEEDS_CHECK_MARKER} Unassigned time"),
+    }
 }
 
 fn describe(entry: &TimeEntry) -> String {
@@ -139,13 +154,19 @@ pub fn add_entries(conn: &mut Connection, entries: Vec<NewAgentEntry>, now: Date
         let result = (|| {
             let task_id = resolve_task_id(&tx, &e.ticket, e.summary.as_deref(), now)?;
             let duration = validate_range(&tx, e.start, e.end, now, None)?;
+            let on_placeholder = e.ticket.trim().eq_ignore_ascii_case(PLACEHOLDER_TICKET);
+            let comment = if on_placeholder {
+                Some(placeholder_comment(e.comment.as_deref()))
+            } else {
+                non_empty(e.comment.as_deref()).map(str::to_owned)
+            };
             Ok::<_, AppError>(time_entries_repo::insert_agent(
                 &tx,
                 task_id,
                 e.start,
                 e.end,
                 duration,
-                non_empty(e.comment.as_deref()),
+                comment.as_deref(),
                 non_empty(e.note.as_deref()),
             )?)
         })();
@@ -217,7 +238,14 @@ pub fn update_entry(conn: &mut Connection, id: i64, patch: AgentEntryPatch, now:
     if let Some(note) = patch.note.as_deref() {
         time_entries_repo::set_agent_note(&tx, id, non_empty(Some(note)))?;
     }
-    let updated = time_entries_repo::get_by_id(&tx, id)?.expect("row was just updated");
+    let mut updated = time_entries_repo::get_by_id(&tx, id)?.expect("row was just updated");
+    if updated.on_placeholder && !comment_needs_check(updated.comment.as_deref()) {
+        let fix = time_entries_repo::EntryUpdate {
+            comment: Some(Some(placeholder_comment(updated.comment.as_deref()))),
+            ..Default::default()
+        };
+        updated = time_entries_repo::update_entry(&tx, id, fix, now)?;
+    }
     tx.commit()?;
     Ok(updated)
 }
@@ -464,6 +492,50 @@ mod tests {
             assert!(time_entries_repo::list_pending_sync(&conn).unwrap().is_empty(), "{comment:?} must be held back");
             assert_eq!(time_entries_repo::count_unsynced(&conn).unwrap(), 0);
         }
+    }
+
+    #[test]
+    fn placeholder_time_never_syncs_and_never_shows_up_in_ticket_search() {
+        let mut conn = setup();
+        let created = add_entries(
+            &mut conn,
+            vec![NewAgentEntry { summary: None, ..new("check", at(10, 0), at(10, 30), "No activity, probably CTVSP-1") }],
+            now(),
+        )
+        .unwrap();
+        let e = &created[0];
+        assert!(e.on_placeholder && e.needs_check);
+        assert_eq!(e.task_key, PLACEHOLDER_TICKET);
+        assert_eq!(e.comment.as_deref(), Some("[CHECK] No activity, probably CTVSP-1"), "marker added");
+        assert!(time_entries_repo::list_pending_sync(&conn).unwrap().is_empty());
+        assert!(tasks_repo::search_tasks(&conn, "check", 10).unwrap().is_empty());
+
+        // Picking a real ticket alone doesn't release it: the gap comment must go too.
+        let patch = AgentEntryPatch { ticket: Some("CTVSP-1".into()), ..Default::default() };
+        let moved = update_entry(&mut conn, e.id, patch, now()).unwrap();
+        assert!(!moved.on_placeholder && moved.needs_check);
+        let patch = AgentEntryPatch { comment: Some("Reviewed the MR".into()), ..Default::default() };
+        let released = update_entry(&mut conn, e.id, patch, now()).unwrap();
+        assert!(!released.needs_check);
+        assert_eq!(time_entries_repo::list_pending_sync(&conn).unwrap().len(), 1);
+
+        // Moving an entry onto the placeholder marks its comment as well.
+        let patch = AgentEntryPatch { ticket: Some("CHECK".into()), ..Default::default() };
+        let back = update_entry(&mut conn, e.id, patch, now()).unwrap();
+        assert_eq!(back.comment.as_deref(), Some("[CHECK] Reviewed the MR"));
+    }
+
+    #[test]
+    fn the_placeholder_alone_blocks_sync_even_without_a_comment_marker() {
+        let mut conn = setup();
+        let created = add_entries(&mut conn, vec![new("CHECK", at(10, 0), at(10, 30), "gap")], now()).unwrap();
+        // The user removes the marker in the edit form but leaves the ticket on CHECK.
+        let edit = time_entries_repo::EntryUpdate { comment: Some(Some("Clean comment".into())), ..Default::default() };
+        let edited = time_entries_repo::update_entry(&conn, created[0].id, edit, now()).unwrap();
+        assert!(!comment_needs_check(edited.comment.as_deref()));
+        assert!(edited.on_placeholder && edited.needs_check, "the ticket alone must keep it held");
+        assert!(time_entries_repo::list_pending_sync(&conn).unwrap().is_empty());
+        assert_eq!(time_entries_repo::count_unsynced(&conn).unwrap(), 0);
     }
 
     #[test]

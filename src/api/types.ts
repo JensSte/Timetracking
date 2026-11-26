@@ -27,7 +27,9 @@ export interface TimeEntry {
   createdByAgent: boolean;
   /** The agent's local-only reasoning for this entry. Never sent to Jira. */
   agentNote: string | null;
-  /** The comment starts with `[CHECK]`: a guess awaiting review, held back from sync. */
+  /** On the local `CHECK` placeholder: unassigned time, never synced until moved (ADR-0042). */
+  onPlaceholder: boolean;
+  /** Held back from sync until reviewed: `onPlaceholder`, or the comment starts with `[CHECK]`. */
   needsCheck: boolean;
 }
 
