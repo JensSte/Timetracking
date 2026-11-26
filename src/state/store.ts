@@ -52,7 +52,7 @@ interface AppStore {
   loadActiveWorkday: () => Promise<void>;
   /**
    * Background re-read of the workday (window focus, visibility, interval): skipped while
-   * another read is running, and also refreshes the summaries when the state changed.
+   * another read is running; the period summaries are re-read the same way.
    */
   refreshWorkday: () => Promise<void>;
   loadDailySummary: () => Promise<void>;
@@ -86,7 +86,13 @@ export const useStore = create<AppStore>((set, get) => {
   // background refresh's older answer can't overwrite the totals read after a click.
   const summaryLoader = createWorkdayLoader(
     () => Promise.all([api.getDailySummary(), api.getWeekSummary(), api.getMonthSummary()]),
-    ([dailySummary, weekSummary, monthSummary]) => set({ dailySummary, weekSummary, monthSummary }),
+    ([dailySummary, weekSummary, monthSummary]) => {
+      const { dailySummary: d, weekSummary: w, monthSummary: m } = get();
+      // Polled every refresh, so an unchanged read must not re-render.
+      if (JSON.stringify([d, w, m]) !== JSON.stringify([dailySummary, weekSummary, monthSummary])) {
+        set({ dailySummary, weekSummary, monthSummary });
+      }
+    },
   );
 
   // Runs a clock button's command, then re-reads the state whatever happened. If the
@@ -220,13 +226,11 @@ export const useStore = create<AppStore>((set, get) => {
   // Breaks come along with the workday read, so the two can't drift apart.
   loadActiveWorkday: () => workdayLoader.load(),
 
+  // The summaries are polled on every refresh as well, not only when the workday read
+  // changed: a session the CLI backfilled entirely in the past (start and end, no break)
+  // leaves the open-workday read untouched, and a failed summary read gets retried.
   refreshWorkday: async () => {
-    const before = pickWorkdaySnapshot(get());
-    await workdayLoader.poll();
-    if (!sameWorkdaySnapshot(before, pickWorkdaySnapshot(get()))) {
-      // Clocking in/out or a break outside the window moves the worked-time totals too.
-      await get().loadPeriodSummaries();
-    }
+    await Promise.all([workdayLoader.poll(), summaryLoader.poll()]);
   },
 
   loadDailySummary: async () => {

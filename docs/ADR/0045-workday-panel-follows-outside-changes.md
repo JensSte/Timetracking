@@ -21,14 +21,16 @@ the break's length but wasn't.
 `refreshWorkday` when the window gains focus, when it becomes visible again, and every
 30 s while it is visible. It goes through the same read as everything else
 (`get_active_workday` + `list_today_breaks`, both cheap local queries); no new Tauri
-command. When the state changed, the period summaries are re-read too, since clocking
-out moves today's worked total.
+command. The period summaries (today/week/month, also local queries) are re-read on
+every refresh too: a session the CLI backfilled entirely in the past leaves the
+open-workday read unchanged but moves today's worked total, and a failed summary read
+is simply retried next time.
 
 **No overlapping reads, no stale overwrite, no flicker.** All workday reads go through
 one loader (`lib/workdaySync.ts::createWorkdayLoader`): a background poll is skipped
 while any read is running; a read after a button click always runs; an answer is only
-applied if no later-started read has landed already. A read that finds nothing changed
-leaves the store untouched, so the panel doesn't re-render.
+applied if no later-started read has landed already. The summaries get their own loader of
+the same kind. A read that finds nothing changed leaves the store untouched, so the panel doesn't re-render.
 
 **A click that fails because the state moved underneath reloads and explains itself.**
 For the engine's four state-conflict errors (workday already running / not running,
