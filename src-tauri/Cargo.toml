@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+# `src/bin/timetracking-agent.rs` makes this a two-binary package; the app stays the
+# default for `cargo run` and `tauri dev`/`tauri build`.
+default-run = "timetracking"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

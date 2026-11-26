@@ -666,6 +666,17 @@ label {
   color: var(--pending);
 }
 
+.badge-check {
+  background: #fde7e4;
+  color: #b3261e;
+}
+
+.badge-agent {
+  margin-left: 0.4em;
+  background: #ece9f7;
+  color: #5b4a9e;
+}
+
 .badge-running {
   background: #e3edfb;
   color: var(--accent);
@@ -891,6 +902,16 @@ label {
 
 [data-theme="dark"] .badge-pending {
   background: #4a3a12;
+}
+
+[data-theme="dark"] .badge-check {
+  background: #4a1f1b;
+  color: #f2b8b5;
+}
+
+[data-theme="dark"] .badge-agent {
+  background: #2e2850;
+  color: #c9bff2;
 }
 
 [data-theme="dark"] .badge-running {

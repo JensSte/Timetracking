@@ -60,6 +60,21 @@ export function MainView({ onLoggedOut }: { onLoggedOut: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The orchestrator files entries through the `timetracking-agent` CLI, straight into
+  // the database, while the app may be open (ADR-0041). Nothing tells the app, so
+  // re-read entries whenever the window comes back into focus — that's when the user
+  // would look for them.
+  useEffect(() => {
+    function handleFocus() {
+      setHistoryRefreshSignal((n) => n + 1);
+      loadUnsyncedCount();
+      loadActiveTimer();
+    }
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // A sync can change the "logged" side of the worked-vs-logged comparisons (a
   // worklog push can succeed or fail), so refresh them alongside the history list.
   // Direct edits/deletes in History go through `handleEntriesChanged` instead.

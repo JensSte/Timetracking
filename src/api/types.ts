@@ -23,6 +23,12 @@ export interface TimeEntry {
   jiraWorklogId: string | null;
   createdManually: boolean;
   editedAt: string | null;
+  /** Filed by the orchestrator through the `timetracking-agent` CLI (ADR-0041). */
+  createdByAgent: boolean;
+  /** The agent's local-only reasoning for this entry. Never sent to Jira. */
+  agentNote: string | null;
+  /** The comment starts with `[CHECK]`: a guess awaiting review, held back from sync. */
+  needsCheck: boolean;
 }
 
 export interface ActiveTimer extends TimeEntry {

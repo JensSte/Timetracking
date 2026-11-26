@@ -1,3 +1,4 @@
+mod agent;
 mod commands;
 mod db;
 mod error;
@@ -19,6 +20,11 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{App, Manager};
 
 use state::AppState;
+
+/// Entry point for the `timetracking-agent` CLI binary (ADR-0041). Returns the exit code.
+pub fn run_agent_cli() -> i32 {
+    agent::cli::main()
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

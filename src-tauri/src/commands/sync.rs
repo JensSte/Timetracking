@@ -71,6 +71,11 @@ async fn sync_entry_impl(state: &AppState, id: i64) -> AppResult<TimeEntry> {
             "This entry is already in sync with Jira.".into(),
         ));
     }
+    if entry.needs_check {
+        return Err(AppError::Validation(
+            "This entry is flagged [CHECK] — review it and remove the marker from the comment before syncing.".into(),
+        ));
+    }
 
     service::sync_entry(&state.db, &*client, &entry).await?;
 

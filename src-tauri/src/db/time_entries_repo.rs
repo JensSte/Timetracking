@@ -1,10 +1,12 @@
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
-use super::models::TimeEntry;
+use super::models::{comment_needs_check, TimeEntry};
 
 fn row_to_time_entry(row: &Row) -> rusqlite::Result<TimeEntry> {
+    let comment: Option<String> = row.get("comment")?;
     Ok(TimeEntry {
+        needs_check: comment_needs_check(comment.as_deref()),
         id: row.get("id")?,
         task_id: row.get("task_id")?,
         task_key: row.get("jira_key")?,
@@ -12,11 +14,13 @@ fn row_to_time_entry(row: &Row) -> rusqlite::Result<TimeEntry> {
         started_at: row.get("started_at")?,
         ended_at: row.get("ended_at")?,
         duration_seconds: row.get("duration_seconds")?,
-        comment: row.get("comment")?,
+        comment,
         is_synced: row.get("is_synced")?,
         jira_worklog_id: row.get("jira_worklog_id")?,
         created_manually: row.get("created_manually")?,
         edited_at: row.get("edited_at")?,
+        created_by_agent: row.get("created_by_agent")?,
+        agent_note: row.get("agent_note")?,
     })
 }
 
@@ -208,35 +212,104 @@ pub fn list_entries(
 
 /// Entries that need to be sent to Jira, oldest first — chronological order means an
 /// interrupted sync fills the earliest gaps in Jira first, and a retry naturally
-/// picks up wherever it left off.
+/// picks up wherever it left off. Entries flagged `[CHECK]` are left out: they are
+/// guesses awaiting the user's review (ADR-0041).
+///
+/// The `[CHECK]` filter runs in Rust, on the same `needs_check` the UI shows, rather than
+/// as SQL: SQLite's `ltrim` and Rust's `trim_start` disagree on what counts as leading
+/// whitespace, and a mismatch would let batch sync send an entry the UI shows as held.
 pub fn list_pending_sync(conn: &Connection) -> rusqlite::Result<Vec<TimeEntry>> {
     let mut stmt = conn.prepare(&format!(
         "{SELECT_JOIN} WHERE time_entries.ended_at IS NOT NULL AND time_entries.is_synced = 0 \
          ORDER BY time_entries.started_at ASC"
     ))?;
     let rows = stmt.query_map([], row_to_time_entry)?;
+    let mut pending = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    pending.retain(|e| !e.needs_check);
+    Ok(pending)
+}
+
+/// What the header's Sync button would send — exactly `list_pending_sync`'s rows, so
+/// `[CHECK]` entries awaiting review are not counted (ADR-0041); History badges them.
+pub fn count_unsynced(conn: &Connection) -> rusqlite::Result<i64> {
+    Ok(list_pending_sync(conn)?.len() as i64)
+}
+
+/// Files a finished entry on behalf of the orchestrator (ADR-0041). Shaped like
+/// `insert_manual`, but flags the row `created_by_agent` and stores the local-only note.
+pub fn insert_agent(
+    conn: &Connection,
+    task_id: i64,
+    started_at: DateTime<Utc>,
+    ended_at: DateTime<Utc>,
+    duration_seconds: i64,
+    comment: Option<&str>,
+    agent_note: Option<&str>,
+) -> rusqlite::Result<TimeEntry> {
+    conn.execute(
+        "INSERT INTO time_entries \
+         (task_id, started_at, ended_at, duration_seconds, comment, created_manually, \
+          created_by_agent, agent_note) \
+         VALUES (?1, ?2, ?3, ?4, ?5, 1, 1, ?6)",
+        params![task_id, started_at, ended_at, duration_seconds, comment, agent_note],
+    )?;
+    let id = conn.last_insert_rowid();
+    Ok(get_by_id(conn, id)?.expect("row was just inserted"))
+}
+
+pub fn set_agent_note(conn: &Connection, id: i64, agent_note: Option<&str>) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE time_entries SET agent_note = ?1 WHERE id = ?2",
+        params![agent_note, id],
+    )?;
+    Ok(())
+}
+
+/// Entries whose time range overlaps `[start, end)`, other than `exclude_id`. A running
+/// entry counts as lasting until `now`. Touching ranges (one ends exactly where the
+/// next starts) do not overlap.
+pub fn list_overlapping(
+    conn: &Connection,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    now: DateTime<Utc>,
+    exclude_id: Option<i64>,
+) -> rusqlite::Result<Vec<TimeEntry>> {
+    let mut stmt = conn.prepare(&format!(
+        "{SELECT_JOIN} WHERE time_entries.started_at < ?1 \
+         AND COALESCE(time_entries.ended_at, ?2) > ?3 \
+         AND (?4 IS NULL OR time_entries.id != ?4) \
+         ORDER BY time_entries.started_at ASC"
+    ))?;
+    let rows = stmt.query_map(params![end, now, start, exclude_id], row_to_time_entry)?;
     rows.collect()
 }
 
-pub fn count_unsynced(conn: &Connection) -> rusqlite::Result<i64> {
-    conn.query_row(
-        "SELECT count(*) FROM time_entries WHERE ended_at IS NOT NULL AND is_synced = 0",
-        [],
-        |row| row.get(0),
-    )
-}
-
-pub fn mark_synced(conn: &Connection, id: i64, jira_worklog_id: &str) -> rusqlite::Result<()> {
-    conn.execute(
+/// Returns whether the row still existed to be marked — `false` means it was deleted
+/// while its worklog request was in flight (ADR-0041).
+pub fn mark_synced(conn: &Connection, id: i64, jira_worklog_id: &str) -> rusqlite::Result<bool> {
+    let n = conn.execute(
         "UPDATE time_entries SET is_synced = 1, jira_worklog_id = ?1 WHERE id = ?2",
         params![jira_worklog_id, id],
     )?;
-    Ok(())
+    Ok(n == 1)
 }
 
 /// Hard-deletes an entry, but only ever a manual entry that was never synced — see
 /// the guard in `commands::entries::delete_draft_entry`. Anything timer-tracked or
 /// ever pushed to Jira is permanent per the spec.
+/// Deletes an agent draft, re-checking eligibility in the same statement so a sync that
+/// completed after the caller's check can never lose a synced row (ADR-0041). Returns
+/// whether a row was deleted.
+pub fn delete_agent_draft(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
+    let n = conn.execute(
+        "DELETE FROM time_entries WHERE id = ?1 AND created_by_agent = 1 AND is_synced = 0 \
+         AND jira_worklog_id IS NULL AND ended_at IS NOT NULL",
+        params![id],
+    )?;
+    Ok(n == 1)
+}
+
 pub fn delete_draft(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM time_entries WHERE id = ?1", params![id])?;
     Ok(())

@@ -32,6 +32,29 @@ pub struct TimeEntry {
     pub jira_worklog_id: Option<String>,
     pub created_manually: bool,
     pub edited_at: Option<DateTime<Utc>>,
+    /// Filed by the orchestrator through the `timetracking-agent` CLI (ADR-0041).
+    pub created_by_agent: bool,
+    /// The agent's local-only reasoning for this entry. Never sent to Jira.
+    pub agent_note: Option<String>,
+    /// The comment starts with [`NEEDS_CHECK_MARKER`]: someone (usually the agent)
+    /// flagged this entry as a guess the user must confirm. Sync holds it back until
+    /// the marker is edited away. Derived, not stored, so removing the marker in the
+    /// edit form is all it takes to release the entry.
+    pub needs_check: bool,
+}
+
+/// Signal word at the start of a comment that holds an entry back from sync (ADR-0041).
+/// Matched case-insensitively after leading whitespace. Sync filters on this function
+/// (via `TimeEntry::needs_check`), never on a separate SQL pattern, so the two can't drift.
+pub const NEEDS_CHECK_MARKER: &str = "[CHECK]";
+
+pub fn comment_needs_check(comment: Option<&str>) -> bool {
+    comment.is_some_and(|c| {
+        let c = c.trim_start();
+        c.len() >= NEEDS_CHECK_MARKER.len()
+            && c.is_char_boundary(NEEDS_CHECK_MARKER.len())
+            && c[..NEEDS_CHECK_MARKER.len()].eq_ignore_ascii_case(NEEDS_CHECK_MARKER)
+    })
 }
 
 impl TimeEntry {

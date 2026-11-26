@@ -30,6 +30,10 @@ pub fn open_in_memory() -> Result<Connection, DbInitError> {
 
 fn init_connection(conn: &mut Connection) -> Result<(), DbInitError> {
     conn.pragma_update(None, "foreign_keys", "ON")?;
+    // The app and the `timetracking-agent` CLI can hold the same database file open at
+    // once (ADR-0041). Both only ever write in short transactions, so waiting briefly
+    // for the other's lock beats failing straight away with SQLITE_BUSY.
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
     migrations().to_latest(conn)?;
     Ok(())
 }

@@ -32,7 +32,21 @@ function canDelete(entry: TimeEntry): boolean {
  *  entry edited after a sync is pending again (ADR-0007) and syncing it updates its
  *  existing worklog. The running entry has no settled duration, so it can't be sent. */
 function canSync(entry: TimeEntry): boolean {
-  return entry.endedAt !== null && !entry.isSynced;
+  return entry.endedAt !== null && !entry.isSynced && !entry.needsCheck;
+}
+
+/** Status badge: a `[CHECK]` entry is pending too, but it won't sync until the marker
+ *  is edited out of its comment (ADR-0041), so it gets its own badge. */
+function statusBadge(entry: TimeEntry): { className: string; label: string; title?: string } {
+  if (entry.endedAt === null) return { className: "badge badge-running", label: "Running" };
+  if (entry.isSynced) return { className: "badge badge-synced", label: "Synced" };
+  if (entry.needsCheck)
+    return {
+      className: "badge badge-check",
+      label: "Check",
+      title: "Held back from sync — edit the entry and remove [CHECK] from the comment once it's right.",
+    };
+  return { className: "badge badge-pending", label: "Pending" };
 }
 
 interface HistoryListProps {
@@ -142,17 +156,22 @@ export function HistoryList({ tasks, jiraBaseUrl, refreshSignal, onEntriesChange
                   )}
                 </td>
                 <td>
-                  <span
-                    className={
-                      entry.endedAt === null
-                        ? "badge badge-running"
-                        : entry.isSynced
-                          ? "badge badge-synced"
-                          : "badge badge-pending"
-                    }
-                  >
-                    {entry.endedAt === null ? "Running" : entry.isSynced ? "Synced" : "Pending"}
-                  </span>
+                  {(() => {
+                    const badge = statusBadge(entry);
+                    return (
+                      <span className={badge.className} title={badge.title}>
+                        {badge.label}
+                      </span>
+                    );
+                  })()}
+                  {entry.createdByAgent && (
+                    <span
+                      className="badge badge-agent"
+                      title={entry.agentNote ? `Logged by the orchestrator: ${entry.agentNote}` : "Logged by the orchestrator"}
+                    >
+                      Orch
+                    </span>
+                  )}
                 </td>
                 <td className="row-actions">
                   {canEdit(entry) && (

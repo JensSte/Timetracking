@@ -30,6 +30,12 @@ pub enum SyncError {
          before syncing this entry again, or the time may end up logged twice."
     )]
     Recording(#[from] rusqlite::Error),
+
+    #[error(
+        "Jira accepted worklog {0}, but the entry was deleted here while it was being sent. \
+         Delete the worklog in Jira if the time shouldn't be logged."
+    )]
+    Vanished(String),
 }
 
 /// Pushes one entry to Jira and, on success, records the returned worklog id against it.
@@ -64,7 +70,9 @@ pub async fn sync_entry(
     };
 
     let guard = conn.lock().unwrap();
-    time_entries_repo::mark_synced(&guard, entry.id, &worklog.id)?;
+    if !time_entries_repo::mark_synced(&guard, entry.id, &worklog.id)? {
+        return Err(SyncError::Vanished(worklog.id));
+    }
     Ok(worklog.id)
 }
 
@@ -74,13 +82,29 @@ pub async fn sync_entry(
 /// brief read/write around each request, never across the network `.await`, so the
 /// rest of the app isn't blocked while a sync is in flight.
 pub async fn sync_all(conn: &Mutex<Connection>, client: &dyn JiraClient) -> Vec<SyncOutcome> {
-    let pending = {
+    let pending: Vec<i64> = {
         let guard = conn.lock().unwrap();
-        time_entries_repo::list_pending_sync(&guard).unwrap_or_default()
+        time_entries_repo::list_pending_sync(&guard)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| e.id)
+            .collect()
     };
 
     let mut outcomes = Vec::with_capacity(pending.len());
-    for entry in pending {
+    for id in pending {
+        // Re-read each row right before sending it: the batch awaits Jira between
+        // entries, and meanwhile the user or the agent CLI (ADR-0041) may have edited,
+        // flagged `[CHECK]`, or deleted a queued entry. Send what the row says *now*,
+        // and skip it if it no longer qualifies — the earlier snapshot is stale.
+        let entry = {
+            let guard = conn.lock().unwrap();
+            time_entries_repo::get_by_id(&guard, id).ok().flatten()
+        };
+        let Some(entry) = entry else { continue };
+        if entry.is_running() || entry.is_synced || entry.needs_check {
+            continue;
+        }
         let result = sync_entry(conn, client, &entry).await.map_err(|e| e.to_string());
         outcomes.push(SyncOutcome { entry_id: entry.id, task_key: entry.task_key, result });
     }
@@ -99,6 +123,100 @@ mod tests {
 
     fn now() -> chrono::DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 8, 10, 12, 0, 0).unwrap()
+    }
+
+    /// Delegates to a `FakeJiraClient`, but runs `hook` against the DB during the first
+    /// worklog call — standing in for an edit made while a batch is mid-flight.
+    struct MidBatchEdit<'a> {
+        inner: FakeJiraClient,
+        conn: &'a Mutex<Connection>,
+        hook: Mutex<Option<Box<dyn FnOnce(&Connection) + Send + 'a>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl JiraClient for MidBatchEdit<'_> {
+        async fn get_myself(&self) -> Result<crate::jira::models::JiraMyself, JiraError> {
+            self.inner.get_myself().await
+        }
+        async fn search_issues(&self, jql: &str, max: u32) -> Result<Vec<crate::jira::models::JiraIssue>, JiraError> {
+            self.inner.search_issues(jql, max).await
+        }
+        async fn get_issue(&self, key: &str) -> Result<crate::jira::models::JiraIssue, JiraError> {
+            self.inner.get_issue(key).await
+        }
+        async fn add_worklog(
+            &self,
+            key: &str,
+            started: chrono::DateTime<Utc>,
+            seconds: i64,
+            comment: Option<&str>,
+        ) -> Result<crate::jira::models::JiraWorklog, JiraError> {
+            if let Some(hook) = self.hook.lock().unwrap().take() {
+                hook(&self.conn.lock().unwrap());
+            }
+            self.inner.add_worklog(key, started, seconds, comment).await
+        }
+        async fn update_worklog(
+            &self,
+            key: &str,
+            id: &str,
+            started: chrono::DateTime<Utc>,
+            seconds: i64,
+            comment: Option<&str>,
+        ) -> Result<crate::jira::models::JiraWorklog, JiraError> {
+            self.inner.update_worklog(key, id, started, seconds, comment).await
+        }
+    }
+
+    #[tokio::test]
+    async fn the_batch_sends_queued_entries_as_they_are_now_not_as_they_were() {
+        let conn = Mutex::new(open_in_memory().unwrap());
+        let (flagged, deleted, edited) = {
+            let guard = conn.lock().unwrap();
+            let task_id = tasks_repo::upsert_favorite_task(&guard, "PROJ-1", "Ticket", now()).unwrap().id;
+            let at = |m: i64| now() + chrono::Duration::minutes(m);
+            time_entries_repo::insert_manual(&guard, task_id, at(0), at(10), 600, Some("first")).unwrap();
+            let flagged = time_entries_repo::insert_manual(&guard, task_id, at(10), at(20), 600, Some("b")).unwrap().id;
+            let deleted = time_entries_repo::insert_manual(&guard, task_id, at(20), at(30), 600, Some("c")).unwrap().id;
+            let edited = time_entries_repo::insert_manual(&guard, task_id, at(30), at(40), 600, Some("d")).unwrap().id;
+            (flagged, deleted, edited)
+        };
+
+        let client = MidBatchEdit {
+            inner: FakeJiraClient::default(),
+            conn: &conn,
+            hook: Mutex::new(Some(Box::new(move |c: &Connection| {
+                c.execute("UPDATE time_entries SET comment = '[CHECK] guess' WHERE id = ?1", [flagged]).unwrap();
+                c.execute("DELETE FROM time_entries WHERE id = ?1", [deleted]).unwrap();
+                c.execute("UPDATE time_entries SET duration_seconds = 900 WHERE id = ?1", [edited]).unwrap();
+            }))),
+        };
+        let outcomes = sync_all(&conn, &client).await;
+
+        assert_eq!(outcomes.len(), 2, "the flagged and the deleted entry must be skipped");
+        let calls = client.inner.calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[1].seconds, 900, "the edit made mid-batch must be what is sent");
+    }
+
+    #[tokio::test]
+    async fn an_entry_deleted_while_its_worklog_is_in_flight_is_reported() {
+        let conn = Mutex::new(open_in_memory().unwrap());
+        let id = {
+            let guard = conn.lock().unwrap();
+            let task_id = tasks_repo::upsert_favorite_task(&guard, "PROJ-1", "Ticket", now()).unwrap().id;
+            time_entries_repo::insert_manual(&guard, task_id, now(), now(), 600, None).unwrap().id
+        };
+        let client = MidBatchEdit {
+            inner: FakeJiraClient::default(),
+            conn: &conn,
+            hook: Mutex::new(Some(Box::new(move |c: &Connection| {
+                c.execute("DELETE FROM time_entries WHERE id = ?1", [id]).unwrap();
+            }))),
+        };
+        let outcomes = sync_all(&conn, &client).await;
+        let err = outcomes[0].result.as_ref().unwrap_err();
+        assert!(err.contains("deleted here while it was being sent"), "{err}");
     }
 
     #[tokio::test]

@@ -17,7 +17,7 @@ const SEARCH_LIMIT: u32 = 25;
 /// Matches a Jira issue key like `PROJ-123`: an all-caps (letters+digits) project
 /// prefix starting with a letter, a dash, then digits. Written by hand instead of
 /// pulling in the `regex` crate for one small check.
-fn looks_like_issue_key(s: &str) -> bool {
+pub(crate) fn looks_like_issue_key(s: &str) -> bool {
     let Some((project, number)) = s.rsplit_once('-') else {
         return false;
     };

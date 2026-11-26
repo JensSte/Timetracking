@@ -33,6 +33,17 @@ Produces a `.app`/`.dmg` on macOS and a `.deb`/`.AppImage` on Linux (bundle targ
 set to `"all"` in `src-tauri/tauri.conf.json`, so the bundler picks the right output
 per host OS).
 
+### Agent CLI
+
+`timetracking-agent` lets an outside agent (an orchestrator Claude) file draft entries
+into the app's database, which you then review and sync in the app (ADR-0041). It isn't
+part of the app bundle; install it separately:
+
+```sh
+cargo install --locked --path src-tauri --bin timetracking-agent
+timetracking-agent --help
+```
+
 ## Tests
 
 ```sh
