@@ -76,6 +76,22 @@ pub fn work_days_for_date(conn: &Connection, date: &str) -> rusqlite::Result<Vec
     rows.collect()
 }
 
+/// Every workday overlapping `[start, end)`, oldest first — an open one counts as
+/// lasting until `now`. Same overlap rule as `time_entries_repo::list_overlapping`.
+pub fn work_days_overlapping(
+    conn: &Connection,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> rusqlite::Result<Vec<WorkDay>> {
+    let mut stmt = conn.prepare(
+        "SELECT * FROM work_days WHERE started_at < ?1 AND COALESCE(ended_at, ?2) > ?3 \
+         ORDER BY started_at ASC",
+    )?;
+    let rows = stmt.query_map(params![end, now, start], row_to_work_day)?;
+    rows.collect()
+}
+
 pub fn get_break_by_id(conn: &Connection, id: i64) -> rusqlite::Result<Option<WorkBreak>> {
     conn.query_row("SELECT * FROM work_breaks WHERE id = ?1", params![id], row_to_work_break)
         .optional()

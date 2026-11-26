@@ -52,3 +52,4 @@ it instead, so the history of *why* stays intact.
 | [0040](0040-logout-lives-in-settings.md) | Disconnecting from Jira lives in Settings and is called "Log out" | Accepted |
 | [0041](0041-agent-cli-files-draft-entries.md) | An agent CLI files draft entries; `[CHECK]` entries are held back from sync | Accepted |
 | [0042](0042-unassigned-time-on-a-local-check-placeholder.md) | Unassigned time goes on a local `CHECK` placeholder, which never syncs | Accepted |
+| [0043](0043-agent-cli-drives-the-workday-clock.md) | The agent CLI drives the workday clock | Accepted |

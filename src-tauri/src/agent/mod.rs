@@ -14,6 +14,7 @@
 //! - A batch of new entries is all-or-nothing, so a half-filed split can't happen.
 
 pub mod cli;
+pub mod workday;
 
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, TransactionBehavior};

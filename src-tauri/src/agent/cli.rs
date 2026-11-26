@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 
+use super::workday::{end_break, end_workday, list_workdays, start_break, start_workday};
 use super::{add_entries, delete_entry, list_entries, update_entry, AgentEntryPatch, NewAgentEntry};
 use crate::db::connection::open_app_db;
 
@@ -26,6 +27,18 @@ COMMANDS:
     update <id>                    Change one of the agent's own unsynced entries:
                                    a JSON object on stdin.
     delete <id>                    Delete one of the agent's own unsynced entries.
+
+    workday start [--at <time>]    Clock in: open a workday, as the app's button does.
+    workday end [--at <time>]      Clock out; an open break is ended at the same time.
+    break start [--at <time>]      Start a break on the open workday.
+    break end [--at <time>]        End the open break.
+    workday list --from <time> --to <time>
+                                   Workdays overlapping the range (incl. an open one),
+                                   oldest first, each with its breaks.
+
+    --at is an RFC 3339 time (seconds allowed), default now; it may not be in the
+    future or before anything already recorded. Workday commands print the
+    resulting workday as JSON; they never touch entries and never sync.
 
 ENTRY FIELDS (add):
     ticket   Jira key, e.g. \"CTVSP-1234\", or \"CHECK\" for time you
@@ -65,6 +78,32 @@ fn parse_time(flag: &str, value: Option<String>) -> Result<DateTime<Utc>, String
     value
         .parse::<DateTime<Utc>>()
         .map_err(|_| format!("{flag}: {value:?} is not an RFC 3339 time"))
+}
+
+/// `--at <time>` (optional, default `now`) — the only option the clock commands take.
+fn parse_at(args: impl Iterator<Item = String>, now: DateTime<Utc>) -> Result<DateTime<Utc>, String> {
+    let mut args = args;
+    let mut at = now;
+    while let Some(flag) = args.next() {
+        match flag.as_str() {
+            "--at" => at = parse_time("--at", args.next())?,
+            other => return Err(format!("unknown option {other:?}")),
+        }
+    }
+    Ok(at)
+}
+
+fn parse_range(args: impl Iterator<Item = String>, command: &str) -> Result<(DateTime<Utc>, DateTime<Utc>), String> {
+    let mut args = args;
+    let (mut from, mut to) = (None, None);
+    while let Some(flag) = args.next() {
+        match flag.as_str() {
+            "--from" => from = Some(parse_time("--from", args.next())?),
+            "--to" => to = Some(parse_time("--to", args.next())?),
+            other => return Err(format!("unknown option {other:?}")),
+        }
+    }
+    from.zip(to).ok_or_else(|| format!("{command} needs --from and --to"))
 }
 
 fn parse_id(value: Option<String>) -> Result<i64, String> {
@@ -122,15 +161,7 @@ pub fn run(args: Vec<String>, stdin: &mut dyn Read, now: DateTime<Utc>) -> Resul
 
     match command.as_str() {
         "list" => {
-            let (mut from, mut to) = (None, None);
-            while let Some(flag) = args.next() {
-                match flag.as_str() {
-                    "--from" => from = Some(parse_time("--from", args.next())?),
-                    "--to" => to = Some(parse_time("--to", args.next())?),
-                    other => return Err(format!("unknown option {other:?}")),
-                }
-            }
-            let (from, to) = from.zip(to).ok_or("list needs --from and --to")?;
+            let (from, to) = parse_range(args, "list")?;
             to_json(&list_entries(&conn, from, to, now).map_err(|e| e.to_string())?)
         }
         "add" => {
@@ -149,6 +180,20 @@ pub fn run(args: Vec<String>, stdin: &mut dyn Read, now: DateTime<Utc>) -> Resul
             delete_entry(&conn, id).map_err(|e| e.to_string())?;
             Ok(format!("{{\"deleted\": {id}}}"))
         }
+        "workday" => match args.next().as_deref() {
+            Some("start") => to_json(&start_workday(&conn, parse_at(args, now)?, now)?),
+            Some("end") => to_json(&end_workday(&mut conn, parse_at(args, now)?, now)?),
+            Some("list") => {
+                let (from, to) = parse_range(args, "workday list")?;
+                to_json(&list_workdays(&conn, from, to, now)?)
+            }
+            _ => Err(format!("workday needs start, end or list\n\n{USAGE}")),
+        },
+        "break" => match args.next().as_deref() {
+            Some("start") => to_json(&start_break(&conn, parse_at(args, now)?, now)?),
+            Some("end") => to_json(&end_break(&conn, parse_at(args, now)?, now)?),
+            _ => Err(format!("break needs start or end\n\n{USAGE}")),
+        },
         other => Err(format!("unknown command {other:?}\n\n{USAGE}")),
     }
 }
@@ -231,5 +276,70 @@ mod tests {
         let missing = std::env::temp_dir().join(format!("tt-agent-missing-{}.sqlite3", rand_suffix()));
         assert!(cli(&missing, &["list", "--from", "2026-11-26T00:00:00Z", "--to", "2026-11-27T00:00:00Z"], "").is_err());
         assert!(!missing.exists());
+    }
+
+    #[test]
+    fn workday_clock_round_trips_through_json() {
+        let db = temp_db();
+        let out = cli(&db, &["workday", "start", "--at", "2026-11-26T08:00:30+01:00"], "").unwrap();
+        let day: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(day["workDate"], "2026-11-26");
+        assert_eq!(day["startedAt"], "2026-11-26T07:00:30Z");
+        assert!(day["endedAt"].is_null());
+        assert_eq!(day["breaks"], serde_json::json!([]));
+
+        cli(&db, &["break", "start", "--at", "2026-11-26T12:00:00+01:00"], "").unwrap();
+        let out = cli(&db, &["workday", "end"], "").unwrap(); // --at defaults to now
+        let day: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(day["endedAt"], "2026-11-26T18:00:00Z");
+        assert_eq!(day["breaks"][0]["endedAt"], "2026-11-26T18:00:00Z", "open break closed with the day");
+        assert!(day["breaks"][0].get("workDayId").is_none());
+
+        let listed = cli(&db, &["workday", "list", "--from", "2026-11-26T00:00:00Z", "--to", "2026-11-27T00:00:00Z"], "").unwrap();
+        let days: serde_json::Value = serde_json::from_str(&listed).unwrap();
+        assert_eq!(days.as_array().unwrap().len(), 1);
+        assert_eq!(days[0]["breaks"][0]["startedAt"], "2026-11-26T11:00:00Z");
+
+        // Entries are untouched.
+        let entries = cli(&db, &["list", "--from", "2026-11-26T00:00:00Z", "--to", "2026-11-27T00:00:00Z"], "").unwrap();
+        assert_eq!(entries.trim(), "[]");
+    }
+
+    #[test]
+    fn workday_errors_are_reported() {
+        let db = temp_db();
+        assert!(cli(&db, &["break", "start"], "").unwrap_err().contains("no workday"));
+        cli(&db, &["workday", "start", "--at", "2026-11-26T08:00:00Z"], "").unwrap();
+        assert!(cli(&db, &["workday", "start"], "").unwrap_err().contains("already running"));
+        assert!(cli(&db, &["workday", "end", "--at", "2026-11-26T18:00:01Z"], "").unwrap_err().contains("future"));
+        assert!(cli(&db, &["workday", "end", "--at", "yesterday"], "").unwrap_err().contains("RFC 3339"));
+        assert!(cli(&db, &["workday", "list", "--from", "2026-11-26T00:00:00Z"], "").unwrap_err().contains("--to"));
+        assert!(cli(&db, &["workday", "pause"], "").is_err());
+        assert!(cli(&db, &["break", "start", "--when", "now"], "").unwrap_err().contains("--when"));
+    }
+
+    #[test]
+    fn workday_commands_honour_the_database_options() {
+        let missing = std::env::temp_dir().join(format!("tt-agent-missing-{}.sqlite3", rand_suffix()));
+        assert!(cli(&missing, &["workday", "start"], "").unwrap_err().contains("No database"));
+        assert!(!missing.exists());
+
+        // --db wins over --dev, and the clock lands in that file.
+        let db = temp_db();
+        let args = vec!["--dev", "--db", db.to_str().unwrap(), "workday", "start", "--at", "2026-11-26T08:00:00Z"];
+        run(args.into_iter().map(String::from).collect(), &mut "".as_bytes(), now()).unwrap();
+        let conn = open_app_db(&db).unwrap();
+        assert!(crate::db::work_days_repo::get_running(&conn).unwrap().is_some());
+
+        assert!(default_db_path(true).unwrap().ends_with("com.georg.timetracking/timetracking-dev.sqlite3"));
+        assert!(default_db_path(false).unwrap().ends_with("com.georg.timetracking/timetracking.sqlite3"));
+    }
+
+    #[test]
+    fn help_documents_the_workday_commands() {
+        let help = run(vec!["--help".into()], &mut "".as_bytes(), now()).unwrap();
+        for cmd in ["workday start", "workday end", "break start", "break end", "workday list"] {
+            assert!(help.contains(cmd), "{cmd}");
+        }
     }
 }
