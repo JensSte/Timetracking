@@ -53,3 +53,4 @@ it instead, so the history of *why* stays intact.
 | [0041](0041-agent-cli-files-draft-entries.md) | An agent CLI files draft entries; `[CHECK]` entries are held back from sync | Accepted |
 | [0042](0042-unassigned-time-on-a-local-check-placeholder.md) | Unassigned time goes on a local `CHECK` placeholder, which never syncs | Accepted |
 | [0043](0043-agent-cli-drives-the-workday-clock.md) | The agent CLI drives the workday clock | Accepted |
+| [0044](0044-comment-field-is-a-growing-textarea.md) | The comment field is a growing textarea | Accepted |

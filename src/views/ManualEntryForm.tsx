@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { createManualEntry, updateTimeEntry } from "../api/commands";
 import type { Task, TimeEntry } from "../api/types";
 import { combine, toDateInput, toTimeInput } from "../lib/format";
+import { CommentTextarea } from "./CommentTextarea";
 import { TaskPicker } from "./TaskPicker";
 
 interface ManualEntryFormProps {
@@ -131,7 +132,7 @@ export function ManualEntryForm({ tasks, entry, onClose, onSaved }: ManualEntryF
         )}
         <label>
           Comment (optional)
-          <input type="text" value={comment} onChange={(e) => setComment(e.target.value)} />
+          <CommentTextarea value={comment} onChange={(e) => setComment(e.target.value)} />
         </label>
         {error && <p className="error">{error}</p>}
         <div className="modal-actions">

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ActiveTimer, Task } from "../api/types";
 import { formatElapsed } from "../lib/format";
+import { CommentTextarea } from "./CommentTextarea";
 import { TaskPicker } from "./TaskPicker";
 
 interface TimerWidgetProps {
@@ -126,15 +127,11 @@ export function TimerWidget({
               disabled={busy}
               fallbackLabel={`${activeTimer.taskKey} — ${activeTimer.taskSummary}`}
             />
-            <input
-              type="text"
+            <CommentTextarea
               placeholder="Comment (optional) — saved with this entry"
               value={runningComment}
               onChange={(e) => setRunningComment(e.target.value)}
               onBlur={saveRunningComment}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
             />
           </div>
           <div className="timer-side">
@@ -154,8 +151,7 @@ export function TimerWidget({
       <div className="timer-layout">
         <div className="timer-fields">
           <TaskPicker tasks={tasks} value={selectedTaskId} onChange={setSelectedTaskId} />
-          <input
-            type="text"
+          <CommentTextarea
             placeholder="Comment (optional)"
             value={comment}
             onChange={(e) => setComment(e.target.value)}

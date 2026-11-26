@@ -62,6 +62,7 @@ h2 {
 
 input,
 select,
+textarea,
 button {
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -239,6 +240,17 @@ label {
 
 .timer-fields input {
   width: 100%;
+}
+
+/* Comment field: `rows` gives the 4-line minimum, the script in CommentTextarea grows
+   the height with the text up to this cap, beyond which it scrolls. The user can still
+   drag the handle, vertically only so the field never leaves its column. */
+.comment-input {
+  width: 100%;
+  box-sizing: border-box;
+  max-height: 16em;
+  resize: vertical;
+  line-height: 1.4;
 }
 
 /* Float the open result list rather than shoving the comment field down every time
@@ -840,6 +852,11 @@ label {
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 0.4em 0.9em;
   margin: 1em 0 0;
+}
+
+/* Keep a multi-line comment's line breaks in the read-back, as they go to Jira. */
+.entry-preview dd {
+  white-space: pre-wrap;
 }
 
 .entry-preview dt {

@@ -48,13 +48,22 @@ pub fn plain_text_to_adf(text: &str) -> Option<serde_json::Value> {
     if trimmed.is_empty() {
         return None;
     }
+    // A "\n" inside an ADF text node renders as a space in Jira, so every line break
+    // becomes a `hardBreak` node between the text nodes of one paragraph. Empty lines
+    // contribute no text node (ADF rejects empty text), leaving consecutive breaks.
+    let mut content: Vec<serde_json::Value> = Vec::new();
+    for (index, line) in trimmed.lines().enumerate() {
+        if index > 0 {
+            content.push(serde_json::json!({"type": "hardBreak"}));
+        }
+        if !line.is_empty() {
+            content.push(serde_json::json!({"type": "text", "text": line}));
+        }
+    }
     Some(serde_json::json!({
         "type": "doc",
         "version": 1,
-        "content": [{
-            "type": "paragraph",
-            "content": [{"type": "text", "text": trimmed}]
-        }]
+        "content": [{"type": "paragraph", "content": content}]
     }))
 }
 
@@ -87,5 +96,28 @@ mod tests {
         assert!(plain_text_to_adf("").is_none());
         assert!(plain_text_to_adf("   ").is_none());
         assert!(plain_text_to_adf("daily standup").is_some());
+    }
+
+    #[test]
+    fn adf_keeps_line_breaks_as_hard_breaks() {
+        let adf = plain_text_to_adf("first\r\n\nthird\n").unwrap();
+        assert_eq!(
+            adf["content"][0]["content"],
+            serde_json::json!([
+                {"type": "text", "text": "first"},
+                {"type": "hardBreak"},
+                {"type": "hardBreak"},
+                {"type": "text", "text": "third"}
+            ])
+        );
+    }
+
+    #[test]
+    fn adf_single_line_stays_one_text_node() {
+        let adf = plain_text_to_adf("  daily standup ").unwrap();
+        assert_eq!(
+            adf["content"][0]["content"],
+            serde_json::json!([{"type": "text", "text": "daily standup"}])
+        );
     }
 }
