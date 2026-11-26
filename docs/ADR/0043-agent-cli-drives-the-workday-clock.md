@@ -24,8 +24,16 @@ entries.
 the rules stay in one place: one open workday, one open break, a break needs an open
 workday, and clocking out ends an open break at the same moment. `agent::workday` only
 adds what the UI never needs because it always acts at "now": `--at` may not be in the
-future, may not be before the open workday's start or any of its break boundaries, and a
-new session may not start before an earlier closed one ended.
+future, may not be before the open workday's start or any of its break boundaries, may not
+end a workday or break at its own start (zero length, which the app's editor refuses too),
+and a new session may not start before an earlier closed one ended.
+
+**Checks and change run in one IMMEDIATE transaction.** Otherwise two CLI calls (or the CLI
+and the app) could interleave, e.g. `workday end --at 12:00` passes its checks, a
+`break start --at 13:00` lands, and the end then closes that break before it started.
+Holding the write lock from the first check, a racing command waits (5 s busy timeout),
+then sees the new state and fails its checks. For this the engine's `end_workday` exposes
+its steps as `end_workday_in_tx`, so the CLI reuses them inside its own transaction.
 
 **Workdays and breaks are local-only.** Nothing here touches `time_entries` or Jira.
 

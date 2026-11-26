@@ -88,14 +88,21 @@ pub fn start_workday(conn: &Connection, now: DateTime<Utc>) -> Result<WorkDay, W
 /// timestamp first — clocking out naturally ends whatever break you were on, mirroring
 /// how starting a new timer auto-stops the previous one (see `timer::engine::start`).
 pub fn end_workday(conn: &mut Connection, now: DateTime<Utc>) -> Result<WorkDay, WorkdayError> {
-    let running = work_days_repo::get_running(conn)?.ok_or(WorkdayError::NotRunning)?;
     let tx = conn.transaction()?;
-    if let Some(open_break) = work_days_repo::get_running_break(&tx)? {
-        work_days_repo::stop_break(&tx, open_break.id, now)?;
-    }
-    let day = work_days_repo::stop_running(&tx, running.id, now)?;
+    let day = end_workday_in_tx(&tx, now)?;
     tx.commit()?;
     Ok(day)
+}
+
+/// `end_workday`'s steps, for a caller that already holds a transaction (the agent CLI
+/// runs its own checks and this in one IMMEDIATE transaction, ADR-0043). Not atomic
+/// on its own — call it only inside a transaction.
+pub fn end_workday_in_tx(conn: &Connection, now: DateTime<Utc>) -> Result<WorkDay, WorkdayError> {
+    let running = work_days_repo::get_running(conn)?.ok_or(WorkdayError::NotRunning)?;
+    if let Some(open_break) = work_days_repo::get_running_break(conn)? {
+        work_days_repo::stop_break(conn, open_break.id, now)?;
+    }
+    Ok(work_days_repo::stop_running(conn, running.id, now)?)
 }
 
 /// Unlike the timer, there's no "switch" semantic for a workday/break — starting one

@@ -181,7 +181,7 @@ pub fn run(args: Vec<String>, stdin: &mut dyn Read, now: DateTime<Utc>) -> Resul
             Ok(format!("{{\"deleted\": {id}}}"))
         }
         "workday" => match args.next().as_deref() {
-            Some("start") => to_json(&start_workday(&conn, parse_at(args, now)?, now)?),
+            Some("start") => to_json(&start_workday(&mut conn, parse_at(args, now)?, now)?),
             Some("end") => to_json(&end_workday(&mut conn, parse_at(args, now)?, now)?),
             Some("list") => {
                 let (from, to) = parse_range(args, "workday list")?;
@@ -190,8 +190,8 @@ pub fn run(args: Vec<String>, stdin: &mut dyn Read, now: DateTime<Utc>) -> Resul
             _ => Err(format!("workday needs start, end or list\n\n{USAGE}")),
         },
         "break" => match args.next().as_deref() {
-            Some("start") => to_json(&start_break(&conn, parse_at(args, now)?, now)?),
-            Some("end") => to_json(&end_break(&conn, parse_at(args, now)?, now)?),
+            Some("start") => to_json(&start_break(&mut conn, parse_at(args, now)?, now)?),
+            Some("end") => to_json(&end_break(&mut conn, parse_at(args, now)?, now)?),
             _ => Err(format!("break needs start or end\n\n{USAGE}")),
         },
         other => Err(format!("unknown command {other:?}\n\n{USAGE}")),
@@ -222,6 +222,8 @@ mod tests {
         Utc.with_ymd_and_hms(2026, 11, 26, 18, 0, 0).unwrap()
     }
 
+    /// A fresh database file per call. The clock alone isn't unique enough: on macOS it
+    /// steps in microseconds, so two tests starting together shared one file.
     fn temp_db() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("tt-agent-cli-{}-{}", std::process::id(), rand_suffix()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -231,8 +233,11 @@ mod tests {
         path
     }
 
-    fn rand_suffix() -> u128 {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    fn rand_suffix() -> String {
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        format!("{nanos}-{n}")
     }
 
     fn cli(db: &PathBuf, args: &[&str], stdin: &str) -> Result<String, String> {
@@ -341,5 +346,47 @@ mod tests {
         for cmd in ["workday start", "workday end", "break start", "break end", "workday list"] {
             assert!(help.contains(cmd), "{cmd}");
         }
+    }
+
+    #[test]
+    fn zero_length_workdays_and_breaks_are_refused() {
+        let db = temp_db();
+        cli(&db, &["workday", "start", "--at", "2026-11-26T08:00:00Z"], "").unwrap();
+        let err = cli(&db, &["workday", "end", "--at", "2026-11-26T08:00:00Z"], "").unwrap_err();
+        assert!(err.contains("at or before its start"), "{err}");
+        cli(&db, &["break", "start", "--at", "2026-11-26T12:00:00Z"], "").unwrap();
+        let err = cli(&db, &["break", "end", "--at", "2026-11-26T12:00:00Z"], "").unwrap_err();
+        assert!(err.contains("at or before its start"), "{err}");
+        // Ending the day would close the open break with zero length, too.
+        let err = cli(&db, &["workday", "end", "--at", "2026-11-26T12:00:00Z"], "").unwrap_err();
+        assert!(err.contains("open break"), "{err}");
+        cli(&db, &["break", "end", "--at", "2026-11-26T12:00:01Z"], "").unwrap();
+    }
+
+    /// The reviewed race: `workday end --at 12:00` passes its checks, then another
+    /// command starts a break at 13:00 before the end is written — and the end closes
+    /// that break before it started. With checks and change in one IMMEDIATE
+    /// transaction, the end waits for the other writer and then fails its checks.
+    #[test]
+    fn a_racing_command_waits_and_then_fails_its_checks() {
+        let db = temp_db();
+        cli(&db, &["workday", "start", "--at", "2026-11-26T08:00:00Z"], "").unwrap();
+
+        let mut other = open_app_db(&db).unwrap();
+        let lock = other.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
+        let racer = {
+            let db = db.clone();
+            std::thread::spawn(move || cli(&db, &["workday", "end", "--at", "2026-11-26T12:00:00Z"], ""))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(!racer.is_finished(), "the end must wait for the write lock, not check first");
+        crate::workday::engine::start_break(&lock, Utc.with_ymd_and_hms(2026, 11, 26, 13, 0, 0).unwrap()).unwrap();
+        lock.commit().unwrap();
+
+        let err = racer.join().unwrap().unwrap_err();
+        assert!(err.contains("before"), "{err}");
+        let conn = open_app_db(&db).unwrap();
+        assert!(crate::db::work_days_repo::get_running(&conn).unwrap().is_some(), "the day stays open");
+        assert!(crate::db::work_days_repo::get_running_break(&conn).unwrap().is_some(), "and so does the break");
     }
 }

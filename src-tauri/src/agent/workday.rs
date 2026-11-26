@@ -4,14 +4,15 @@
 //! Every state change goes through `workday::engine` — the same functions the UI's
 //! clock-in / break / clock-out buttons call — so the rules stay in one place. What is
 //! added here is only what the UI never needs because it always acts at "now": an
-//! `at` time must not be in the future, and must not land before something already
+//! `at` time must not be in the future, must not land before something already
 //! recorded (a closed session, or the open session's start or breaks), which would
-//! leave a negative or overlapping span.
+//! leave a negative or overlapping span, and must not end a workday or break at its
+//! own start. Checks and change run in one IMMEDIATE transaction (`in_write_tx`).
 //!
 //! These rows are local-only and never synced; `time_entries` is never touched here.
 
 use chrono::{DateTime, Utc};
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 use serde::Serialize;
 
 use crate::db::models::{WorkBreak, WorkDay};
@@ -67,13 +68,40 @@ fn not_in_future(at: DateTime<Utc>, now: DateTime<Utc>) -> Result<(), String> {
     Ok(())
 }
 
-/// `at` must not come before the latest thing recorded on the open workday — its start
-/// or any break boundary. With no open workday this passes, and the engine reports it.
-fn not_before_open_day(conn: &Connection, at: DateTime<Utc>) -> Result<(), String> {
+fn db_err(e: rusqlite::Error) -> String {
+    e.to_string()
+}
+
+/// Runs `check_and_change` in one IMMEDIATE transaction and returns the workday it
+/// names, read back inside it. IMMEDIATE takes the write lock before the checks, so a
+/// second CLI call (or the app) can't change the clock between our checks and our
+/// write: a racing command waits (busy timeout), then sees our result and fails its own
+/// checks cleanly instead of e.g. closing a break before it started.
+fn in_write_tx(
+    conn: &mut Connection,
+    check_and_change: impl FnOnce(&Connection) -> Result<i64, String>,
+) -> Result<AgentWorkday, String> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(db_err)?;
+    let day_id = check_and_change(&tx)?;
+    let day = by_id(&tx, day_id)?;
+    tx.commit().map_err(db_err)?;
+    Ok(day)
+}
+
+/// The open workday's start and break boundaries, for the `--at` checks.
+struct OpenDay {
+    start: DateTime<Utc>,
+    open_break_start: Option<DateTime<Utc>>,
+    /// The latest of the day's start and every break boundary.
+    latest: DateTime<Utc>,
+}
+
+/// `None` with no open workday — the engine then reports that in its own words.
+fn open_day(conn: &Connection) -> Result<Option<OpenDay>, String> {
     let Some(day) = engine::get_running(conn).map_err(|e| e.to_string())? else {
-        return Ok(());
+        return Ok(None);
     };
-    let breaks = work_days_repo::breaks_for_day(conn, day.id).map_err(|e| e.to_string())?;
+    let breaks = work_days_repo::breaks_for_day(conn, day.id).map_err(db_err)?;
     let latest = breaks
         .iter()
         .flat_map(|b| [Some(b.started_at), b.ended_at])
@@ -81,53 +109,92 @@ fn not_before_open_day(conn: &Connection, at: DateTime<Utc>) -> Result<(), Strin
         .chain([day.started_at])
         .max()
         .expect("chain always has the workday start");
-    if at < latest {
+    Ok(Some(OpenDay {
+        start: day.started_at,
+        open_break_start: breaks.iter().find(|b| b.is_running()).map(|b| b.started_at),
+        latest,
+    }))
+}
+
+/// `at` must not come before the latest thing recorded on the open workday.
+fn not_before(day: &OpenDay, at: DateTime<Utc>) -> Result<(), String> {
+    if at < day.latest {
         return Err(format!(
             "--at {} is before {}, the last thing recorded on the open workday.",
             at.to_rfc3339(),
-            latest.to_rfc3339()
+            day.latest.to_rfc3339()
         ));
     }
     Ok(())
 }
 
-pub fn start_workday(conn: &Connection, at: DateTime<Utc>, now: DateTime<Utc>) -> Result<AgentWorkday, String> {
-    not_in_future(at, now)?;
-    // A new session must not reach back into one already closed. An open one is the
-    // engine's "already running" error, so it's left to the engine to report.
-    let overlapping = work_days_repo::work_days_overlapping(conn, at, now, now).map_err(|e| e.to_string())?;
-    if let Some(closed) = overlapping.iter().find(|d| d.ended_at.is_some()) {
+/// An end must be strictly after its start: a zero-length workday or break is refused,
+/// as the app's own editor refuses an end that isn't after the start.
+fn after(start: DateTime<Utc>, at: DateTime<Utc>, what: &str) -> Result<(), String> {
+    if at <= start {
         return Err(format!(
-            "--at {} is before the end of workday #{} ({}).",
+            "--at {} would end the {what} at or before its start {} — nothing to record.",
             at.to_rfc3339(),
-            closed.id,
-            closed.ended_at.expect("filtered on ended_at").to_rfc3339()
+            start.to_rfc3339()
         ));
     }
-    let day = engine::start_workday(conn, at).map_err(|e| e.to_string())?;
-    with_breaks(conn, day)
+    Ok(())
+}
+
+pub fn start_workday(conn: &mut Connection, at: DateTime<Utc>, now: DateTime<Utc>) -> Result<AgentWorkday, String> {
+    not_in_future(at, now)?;
+    in_write_tx(conn, |tx| {
+        // A new session must not reach back into one already closed. An open one is the
+        // engine's "already running" error, so it's left to the engine to report.
+        let overlapping = work_days_repo::work_days_overlapping(tx, at, now, now).map_err(db_err)?;
+        if let Some(closed) = overlapping.iter().find(|d| d.ended_at.is_some()) {
+            return Err(format!(
+                "--at {} is before the end of workday #{} ({}).",
+                at.to_rfc3339(),
+                closed.id,
+                closed.ended_at.expect("filtered on ended_at").to_rfc3339()
+            ));
+        }
+        Ok(engine::start_workday(tx, at).map_err(|e| e.to_string())?.id)
+    })
 }
 
 /// An open break is closed at the same time first, as when the user clocks out.
 pub fn end_workday(conn: &mut Connection, at: DateTime<Utc>, now: DateTime<Utc>) -> Result<AgentWorkday, String> {
     not_in_future(at, now)?;
-    not_before_open_day(conn, at)?;
-    let day = engine::end_workday(conn, at).map_err(|e| e.to_string())?;
-    with_breaks(conn, day)
+    in_write_tx(conn, |tx| {
+        if let Some(day) = open_day(tx)? {
+            not_before(&day, at)?;
+            after(day.start, at, "workday")?;
+            if let Some(b) = day.open_break_start {
+                after(b, at, "open break")?;
+            }
+        }
+        Ok(engine::end_workday_in_tx(tx, at).map_err(|e| e.to_string())?.id)
+    })
 }
 
-pub fn start_break(conn: &Connection, at: DateTime<Utc>, now: DateTime<Utc>) -> Result<AgentWorkday, String> {
+pub fn start_break(conn: &mut Connection, at: DateTime<Utc>, now: DateTime<Utc>) -> Result<AgentWorkday, String> {
     not_in_future(at, now)?;
-    not_before_open_day(conn, at)?;
-    let b = engine::start_break(conn, at).map_err(|e| e.to_string())?;
-    by_id(conn, b.work_day_id)
+    in_write_tx(conn, |tx| {
+        if let Some(day) = open_day(tx)? {
+            not_before(&day, at)?;
+        }
+        Ok(engine::start_break(tx, at).map_err(|e| e.to_string())?.work_day_id)
+    })
 }
 
-pub fn end_break(conn: &Connection, at: DateTime<Utc>, now: DateTime<Utc>) -> Result<AgentWorkday, String> {
+pub fn end_break(conn: &mut Connection, at: DateTime<Utc>, now: DateTime<Utc>) -> Result<AgentWorkday, String> {
     not_in_future(at, now)?;
-    not_before_open_day(conn, at)?;
-    let b = engine::end_break(conn, at).map_err(|e| e.to_string())?;
-    by_id(conn, b.work_day_id)
+    in_write_tx(conn, |tx| {
+        if let Some(day) = open_day(tx)? {
+            not_before(&day, at)?;
+            if let Some(b) = day.open_break_start {
+                after(b, at, "break")?;
+            }
+        }
+        Ok(engine::end_break(tx, at).map_err(|e| e.to_string())?.work_day_id)
+    })
 }
 
 /// Every workday overlapping `[from, to)`, oldest first; an open one counts as lasting
@@ -162,12 +229,12 @@ mod tests {
     #[test]
     fn a_full_day_with_a_break() {
         let mut conn = open_in_memory().unwrap();
-        let day = start_workday(&conn, at(8, 0), now()).unwrap();
+        let day = start_workday(&mut conn, at(8, 0), now()).unwrap();
         assert_eq!(day.ended_at, None);
-        let day = start_break(&conn, at(12, 0), now()).unwrap();
+        let day = start_break(&mut conn, at(12, 0), now()).unwrap();
         assert_eq!(day.breaks.len(), 1);
         assert_eq!(day.breaks[0].ended_at, None);
-        let day = end_break(&conn, at(12, 30), now()).unwrap();
+        let day = end_break(&mut conn, at(12, 30), now()).unwrap();
         assert_eq!(day.breaks[0].ended_at, Some(at(12, 30)));
         let day = end_workday(&mut conn, at(17, 0), now()).unwrap();
         assert_eq!(day.ended_at, Some(at(17, 0)));
@@ -176,8 +243,8 @@ mod tests {
     #[test]
     fn ending_the_day_closes_an_open_break() {
         let mut conn = open_in_memory().unwrap();
-        start_workday(&conn, at(8, 0), now()).unwrap();
-        start_break(&conn, at(12, 0), now()).unwrap();
+        start_workday(&mut conn, at(8, 0), now()).unwrap();
+        start_break(&mut conn, at(12, 0), now()).unwrap();
         let day = end_workday(&mut conn, at(12, 45), now()).unwrap();
         assert_eq!(day.ended_at, Some(at(12, 45)));
         assert_eq!(day.breaks[0].ended_at, Some(at(12, 45)));
@@ -185,18 +252,18 @@ mod tests {
 
     #[test]
     fn a_second_start_while_open_is_refused() {
-        let conn = open_in_memory().unwrap();
-        start_workday(&conn, at(8, 0), now()).unwrap();
-        let err = start_workday(&conn, at(9, 0), now()).unwrap_err();
+        let mut conn = open_in_memory().unwrap();
+        start_workday(&mut conn, at(8, 0), now()).unwrap();
+        let err = start_workday(&mut conn, at(9, 0), now()).unwrap_err();
         assert!(err.contains("already running"), "{err}");
     }
 
     #[test]
     fn a_break_needs_an_open_workday() {
-        let conn = open_in_memory().unwrap();
-        let err = start_break(&conn, at(12, 0), now()).unwrap_err();
+        let mut conn = open_in_memory().unwrap();
+        let err = start_break(&mut conn, at(12, 0), now()).unwrap_err();
         assert!(err.contains("no workday is currently running"), "{err}");
-        let err = end_break(&conn, at(12, 0), now()).unwrap_err();
+        let err = end_break(&mut conn, at(12, 0), now()).unwrap_err();
         assert!(err.contains("no break"), "{err}");
     }
 
@@ -204,35 +271,35 @@ mod tests {
     fn at_in_the_future_is_refused_everywhere() {
         let mut conn = open_in_memory().unwrap();
         let future = now() + chrono::Duration::seconds(1);
-        assert!(start_workday(&conn, future, now()).unwrap_err().contains("future"));
-        start_workday(&conn, at(8, 0), now()).unwrap();
-        assert!(start_break(&conn, future, now()).unwrap_err().contains("future"));
-        assert!(end_break(&conn, future, now()).unwrap_err().contains("future"));
+        assert!(start_workday(&mut conn, future, now()).unwrap_err().contains("future"));
+        start_workday(&mut conn, at(8, 0), now()).unwrap();
+        assert!(start_break(&mut conn, future, now()).unwrap_err().contains("future"));
+        assert!(end_break(&mut conn, future, now()).unwrap_err().contains("future"));
         assert!(end_workday(&mut conn, future, now()).unwrap_err().contains("future"));
     }
 
     #[test]
     fn at_before_what_is_already_recorded_is_refused() {
         let mut conn = open_in_memory().unwrap();
-        start_workday(&conn, at(8, 0), now()).unwrap();
-        assert!(start_break(&conn, at(7, 0), now()).unwrap_err().contains("before"));
-        start_break(&conn, at(12, 0), now()).unwrap();
-        assert!(end_break(&conn, at(11, 0), now()).unwrap_err().contains("before"));
-        end_break(&conn, at(12, 30), now()).unwrap();
+        start_workday(&mut conn, at(8, 0), now()).unwrap();
+        assert!(start_break(&mut conn, at(7, 0), now()).unwrap_err().contains("before"));
+        start_break(&mut conn, at(12, 0), now()).unwrap();
+        assert!(end_break(&mut conn, at(11, 0), now()).unwrap_err().contains("before"));
+        end_break(&mut conn, at(12, 30), now()).unwrap();
         assert!(end_workday(&mut conn, at(12, 15), now()).unwrap_err().contains("before"));
         end_workday(&mut conn, at(13, 0), now()).unwrap();
         // A new session can't reach back into the closed one.
-        assert!(start_workday(&conn, at(12, 0), now()).unwrap_err().contains("before the end"));
-        assert!(start_workday(&conn, at(13, 0), now()).is_ok());
+        assert!(start_workday(&mut conn, at(12, 0), now()).unwrap_err().contains("before the end"));
+        assert!(start_workday(&mut conn, at(13, 0), now()).is_ok());
     }
 
     #[test]
     fn list_returns_overlapping_days_including_open_ones() {
         let mut conn = open_in_memory().unwrap();
-        start_workday(&conn, at(6, 0), now()).unwrap();
+        start_workday(&mut conn, at(6, 0), now()).unwrap();
         end_workday(&mut conn, at(9, 0), now()).unwrap();
-        start_workday(&conn, at(10, 0), now()).unwrap();
-        start_break(&conn, at(11, 0), now()).unwrap();
+        start_workday(&mut conn, at(10, 0), now()).unwrap();
+        start_break(&mut conn, at(11, 0), now()).unwrap();
 
         // Started before the range and still open: included.
         let days = list_workdays(&conn, at(12, 0), at(13, 0), now()).unwrap();
