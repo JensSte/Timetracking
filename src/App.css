@@ -419,10 +419,15 @@ label {
 
 /* One period per line, labels in their own column so the figures line up under each
    other — a single run-on row pushed the week and month totals far to the right,
-   where they read as an afterthought rather than as three comparable numbers. */
+   where they read as an afterthought rather than as three comparable numbers.
+   Rows align on the text baseline, not the row top: the Today value carries the Edit
+   button, whose box is taller than a plain line, which otherwise pushed its figures
+   below the "Today" label. `minmax(0, 1fr)` and `min-width: 0` let the value column
+   shrink with the card so its text wraps instead of running past the card's edge. */
 .workday-summary {
   display: grid;
-  grid-template-columns: max-content 1fr;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
   gap: 0.2em 0.6em;
 }
 
@@ -432,13 +437,23 @@ label {
 
 .workday-summary dd {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* One worked/logged/diff figure: a narrow card wraps between figures, never inside one. */
+.workday-figure {
+  white-space: nowrap;
 }
 
 /* The Edit affordance on the Today row: same link-button as History's, nudged off
    the figures so it doesn't read as part of the sentence. */
 .workday-summary .link-button {
   margin-left: 0.4em;
+  padding-block: 0;
   font-size: inherit;
+  line-height: inherit;
+  white-space: nowrap;
 }
 
 .field-hint {

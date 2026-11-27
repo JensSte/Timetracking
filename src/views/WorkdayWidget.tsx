@@ -172,8 +172,11 @@ export function WorkdayWidget({
         <dl className="workday-summary">
           <dt>Today</dt>
           <dd>
-            worked {formatDuration(workedToday)} · logged {formatDuration(loggedToday)} · diff{" "}
-            {formatDiff(workedToday - loggedToday)}
+            {/* Each figure stays on one line, so a narrow card wraps between them
+                rather than splitting "diff −1h 31m" in the middle. */}
+            <span className="workday-figure">worked {formatDuration(workedToday)}</span> ·{" "}
+            <span className="workday-figure">logged {formatDuration(loggedToday)}</span> ·{" "}
+            <span className="workday-figure">diff {formatDiff(workedToday - loggedToday)}</span>
             {(activeWorkday || workedToday > 0) && (
               <button type="button" className="link-button" onClick={openWorkdayEditor} disabled={busy}>
                 Edit
